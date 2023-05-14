@@ -571,6 +571,32 @@ def conformer_rnnt_base() -> RNNT:
         joiner_activation="tanh",
     )
 
+def conformer_rnnt_espnet() -> RNNT:
+    r"""Builds basic version of Conformer RNN-T model.
+
+    Returns:
+        RNNT:
+            Conformer RNN-T model.
+    """
+    return conformer_rnnt_model(
+        input_dim=80,  # matched
+        encoding_dim=512,  # 1024->512
+        time_reduction_stride=4,
+        conformer_input_dim=512,  # 256->512
+        conformer_ffn_dim=2048,   # 1024->2048
+        conformer_num_layers=12,  # 16->12
+        conformer_num_heads=8,    # 4->8
+        conformer_depthwise_conv_kernel_size=31,  # matched
+        conformer_dropout=0.1,  # matched
+        num_symbols=1024,       # 5000
+        symbol_embedding_dim=512,  # 256->512
+        num_lstm_layers=1,    # 2->1
+        lstm_hidden_dim=640,  # 512->640
+        lstm_layer_norm=True, # ?
+        lstm_layer_norm_epsilon=1e-5,
+        lstm_dropout=0.1,  # 0.3->0.1
+        joiner_activation="tanh",  # matched
+    )
 
 def conformer_rnnt_biasing(
     *,

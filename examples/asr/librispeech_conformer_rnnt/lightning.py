@@ -8,7 +8,7 @@ import torch
 import torchaudio
 from pytorch_lightning import LightningModule
 from torchaudio.models import Hypothesis, RNNTBeamSearch
-from torchaudio.prototype.models import conformer_rnnt_base
+from torchaudio.prototype.models import conformer_rnnt_base, conformer_rnnt_espnet
 
 
 logger = logging.getLogger()
@@ -90,8 +90,9 @@ class ConformerRNNTModule(LightningModule):
 
         # ``conformer_rnnt_base`` hardcodes a specific Conformer RNN-T configuration.
         # For greater customizability, please refer to ``conformer_rnnt_model``.
-        self.model = conformer_rnnt_base()
-        self.loss = torchaudio.transforms.RNNTLoss(reduction="sum")
+        # self.model = conformer_rnnt_base()
+        self.model = conformer_rnnt_espnet()
+        self.loss = torchaudio.transforms.RNNTLoss(reduction="mean")  # reduction="sum"
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=8e-4, betas=(0.9, 0.98), eps=1e-9)
         self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.96)
 
@@ -149,7 +150,10 @@ class ConformerRNNTModule(LightningModule):
         batch_size = batch.features.size(0)
         batch_sizes = self.all_gather(batch_size)
         self.log("Gathered batch size", batch_sizes.sum(), on_step=True, on_epoch=True)
-        loss *= batch_sizes.size(0) / batch_sizes.sum()  # world size / batch size
+        # print(f"loss={loss}")
+        # loss *= batch_sizes.size(0) / batch_sizes.sum()  # world size / batch size  # this is effectively 1/avg_batch_size_per_node
+        # loss *= 1 / batch_sizes.size(0) * 4
+        # print(f"loss={loss}, scale={batch_sizes.size(0) / batch_sizes.sum()}")
         return loss
 
     def validation_step(self, batch, batch_idx):

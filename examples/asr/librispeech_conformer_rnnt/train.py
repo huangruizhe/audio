@@ -6,7 +6,7 @@ import sentencepiece as spm
 from lightning import ConformerRNNTModule
 from pytorch_lightning import seed_everything, Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
-from pytorch_lightning.plugins import DDPPlugin
+from pytorch_lightning.strategies import DDPStrategy
 from transforms import get_data_module
 
 
@@ -39,9 +39,9 @@ def run_train(args):
         default_root_dir=args.exp_dir,
         max_epochs=args.epochs,
         num_nodes=args.nodes,
-        gpus=args.gpus,
+        devices=args.gpus,
         accelerator="gpu",
-        strategy=DDPPlugin(find_unused_parameters=False),
+        strategy=DDPStrategy(find_unused_parameters=False),
         callbacks=callbacks,
         reload_dataloaders_every_n_epochs=1,
         gradient_clip_val=10.0,
@@ -49,6 +49,39 @@ def run_train(args):
 
     sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
     model = ConformerRNNTModule(sp_model)
+
+    import numpy as np
+    
+    total_params = sum([np.prod(p.size()) for p in model.model.parameters()])
+    trainable_model_parameters = filter(lambda p: p.requires_grad, model.model.parameters())
+    trainable_params = sum([np.prod(p.size()) for p in trainable_model_parameters])
+    
+    encoder_params = sum([np.prod(p.size()) for p in model.model.transcriber.parameters()])
+    encoder_input_linear_params = sum([np.prod(p.size()) for p in model.model.transcriber.input_linear.parameters()])
+    encoder_conformer_params = sum([np.prod(p.size()) for p in model.model.transcriber.conformer.parameters()])
+    encoder_conformer0_params = sum([np.prod(p.size()) for p in model.model.transcriber.conformer.conformer_layers[0].parameters()])
+
+    decoder_params = sum([np.prod(p.size()) for p in model.model.predictor.parameters()])
+    joint_network_params = sum([np.prod(p.size()) for p in model.model.joiner.parameters()])
+
+    with open("/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_rnnt/model_info.txt", "w") as fout:
+        print(model, file=fout)
+        print("", file=fout)
+        print(f"#total_params={total_params}", file=fout)
+        print(f"#trainable_params={trainable_params}", file=fout)
+        print("", file=fout)
+        
+        print(f"#encoder_params={encoder_params}", file=fout)
+        print(f"#encoder_input_linear_params={encoder_input_linear_params}", file=fout)
+        print(f"#encoder_conformer_params={encoder_conformer_params}", file=fout)
+        print(f"#encoder_conformer0_params={encoder_conformer0_params}", file=fout)
+        print("", file=fout)
+
+        print(f"#decoder_params={decoder_params}", file=fout)
+        print("", file=fout)
+
+        print(f"#joint_network_params={joint_network_params}", file=fout)
+
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path))
     trainer.fit(model, data_module, ckpt_path=args.checkpoint_path)
 
@@ -99,7 +132,7 @@ def cli_main():
     )
     parser.add_argument(
         "--epochs",
-        default=120,
+        default=200,
         type=int,
         help="Number of epochs to train for. (Default: 120)",
     )
