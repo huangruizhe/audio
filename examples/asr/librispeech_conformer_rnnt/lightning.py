@@ -8,7 +8,7 @@ import torch
 import torchaudio
 from pytorch_lightning import LightningModule
 from torchaudio.models import Hypothesis, RNNTBeamSearch
-from torchaudio.prototype.models import conformer_rnnt_base, conformer_rnnt_espnet
+from torchaudio.prototype.models import conformer_rnnt_base, conformer_rnnt_espnet, conformer_rnnt_xiaohui
 
 
 logger = logging.getLogger()
@@ -53,6 +53,31 @@ class WarmupLR(torch.optim.lr_scheduler._LRScheduler):
             return [scaling_factor * base_lr for base_lr in self.base_lrs]
 
 
+class NoamLR(torch.optim.lr_scheduler._LRScheduler):
+    r"""
+    https://nn.labml.ai/optimizers/noam.html
+    https://github.com/espnet/espnet/blob/master/espnet/nets/pytorch_backend/transformer/optimizer.py
+    https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/transducer_stateless/transformer.py
+    """
+
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        warmup_steps: int,
+        model_size: int,
+        last_epoch=-1,
+        verbose=False,
+    ):
+        self.warmup_steps = warmup_steps
+        self.model_size = model_size
+        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
+
+    def get_lr(self):
+        scaling_factor = self.model_size ** (-0.5) \
+            * min(self._step_count ** (-0.5), self._step_count * self.warmup_steps ** (-1.5))
+        return [scaling_factor * base_lr for base_lr in self.base_lrs]
+
+
 def post_process_hypos(
     hypos: List[Hypothesis], sp_model: spm.SentencePieceProcessor
 ) -> List[Tuple[str, float, List[int], List[int]]]:
@@ -92,9 +117,20 @@ class ConformerRNNTModule(LightningModule):
         # For greater customizability, please refer to ``conformer_rnnt_model``.
         # self.model = conformer_rnnt_base()
         self.model = conformer_rnnt_espnet()
-        self.loss = torchaudio.transforms.RNNTLoss(reduction="mean")  # reduction="sum"
+        # self.model = conformer_rnnt_xiaohui()
+        # self.loss = torchaudio.transforms.RNNTLoss(reduction="sum")
+        self.loss = torchaudio.transforms.RNNTLoss(reduction="mean")
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=8e-4, betas=(0.9, 0.98), eps=1e-9)
         self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.96)
+        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-9)
+        # self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.98)
+        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=2e-3)
+        # self.warmup_lr_scheduler = WarmupLR(self.optimizer, 10, 100, 0.96)
+
+        # # Noam:
+        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=5.0, betas=(0.9, 0.98), eps=1e-9, weight_decay=0)
+        # self.warmup_lr_scheduler = NoamLR(self.optimizer, warmup_steps=60000, model_size=512)
+
 
     def _step(self, batch, _, step_type):
         if batch is None:
@@ -119,6 +155,7 @@ class ConformerRNNTModule(LightningModule):
         return (
             [self.optimizer],
             [{"scheduler": self.warmup_lr_scheduler, "interval": "epoch"}],
+            # [{"scheduler": self.warmup_lr_scheduler, "interval": "step"}],  # Noam
         )
 
     def forward(self, batch: Batch):
@@ -146,6 +183,9 @@ class ConformerRNNTModule(LightningModule):
         Doing so allows us to account for the variability in batch sizes that
         variable-length sequential data yield.
         """
+        # with open("/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_rnnt/batch_info.txt", "a") as fout:
+        #     print(f"idx={batch_idx}: feature_lengths={batch.feature_lengths.tolist()}, targets={batch.targets.tolist()}, target_lengths={batch.target_lengths.tolist()}", file=fout)
+
         loss = self._step(batch, batch_idx, "train")
         batch_size = batch.features.size(0)
         batch_sizes = self.all_gather(batch_size)

@@ -72,7 +72,8 @@ class CustomBucketDataset(torch.utils.data.Dataset):
 
         idx_length_buckets = [(idx, length, bucket_assignments[idx]) for idx, length in enumerate(lengths)]
         if shuffle:
-            idx_length_buckets = random.sample(idx_length_buckets, len(idx_length_buckets))
+            # idx_length_buckets = random.sample(idx_length_buckets, len(idx_length_buckets))
+            random.shuffle(idx_length_buckets)
         else:
             idx_length_buckets = sorted(idx_length_buckets, key=lambda x: x[1], reverse=True)
 
@@ -131,6 +132,8 @@ class LibriSpeechDataModule(LightningDataModule):
         self.train_shuffle = train_shuffle
         self.num_workers = num_workers
 
+        self.datasets = None
+
     def train_dataloader(self):
         datasets = [
             self.librispeech_cls(self.librispeech_path, url="train-clean-360"),
@@ -149,6 +152,42 @@ class LibriSpeechDataModule(LightningDataModule):
                     self.max_tokens,
                     self.train_num_buckets,
                     batch_size=self.batch_size,
+                )
+                for dataset, lengths in zip(datasets, self.train_dataset_lengths)
+            ]
+        )
+        dataset = TransformDataset(dataset, self.train_transform)
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            num_workers=self.num_workers,
+            batch_size=None,
+            shuffle=self.train_shuffle,
+        )
+        return dataloader
+
+    def train_dataloader_new(self):
+        if not self.datasets:
+            datasets = [
+                self.librispeech_cls(self.librispeech_path, url="train-clean-360"),
+                self.librispeech_cls(self.librispeech_path, url="train-clean-100"),
+                self.librispeech_cls(self.librispeech_path, url="train-other-500"),
+            ]
+            if not self.train_dataset_lengths:
+                self.train_dataset_lengths = [get_sample_lengths(dataset) for dataset in datasets]
+
+            self.datasets = [torch.utils.data.ConcatDataset(datasets)]
+            self.train_dataset_lengths = [[l for lengths in self.train_dataset_lengths for l in lengths]]
+
+        datasets = self.datasets
+        dataset = torch.utils.data.ConcatDataset(
+            [
+                CustomBucketDataset(
+                    dataset,
+                    lengths,
+                    self.max_tokens,
+                    self.train_num_buckets,
+                    batch_size=self.batch_size,
+                    shuffle=True,
                 )
                 for dataset, lengths in zip(datasets, self.train_dataset_lengths)
             ]
@@ -188,8 +227,7 @@ class LibriSpeechDataModule(LightningDataModule):
         return dataloader
 
     def test_dataloader(self):
-        # dataset = self.librispeech_cls(self.librispeech_path, url="test-clean")
-        dataset = self.librispeech_cls(self.librispeech_path, url="test-other")
+        dataset = self.librispeech_cls(self.librispeech_path, url="test-clean")
         dataset = TransformDataset(dataset, self.test_transform)
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=None)
         return dataloader

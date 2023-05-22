@@ -74,11 +74,22 @@ class TrainTransform:
         spec_aug_transform = T.SpecAugment(
             n_time_masks=2,
             time_mask_param=40,
+            p=0.2,
             n_freq_masks=2,
             freq_mask_param=30,
             iid_masks=True,
             zero_masking=True,
         )
+
+        # spec_aug_transform = T.SpecAugment(
+        #     n_time_masks=2,
+        #     time_mask_param=100,
+        #     p=0.2,
+        #     n_freq_masks=2,
+        #     freq_mask_param=27,
+        #     iid_masks=True,
+        #     zero_masking=True,
+        # )
 
         self.train_data_pipeline = torch.nn.Sequential(
             FunctionalModule(_piecewise_linear_log),
@@ -86,12 +97,12 @@ class TrainTransform:
             FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
             # torchaudio.transforms.FrequencyMasking(27),
             # torchaudio.transforms.FrequencyMasking(27),
-            torchaudio.transforms.FrequencyMasking(30),
-            torchaudio.transforms.FrequencyMasking(30),
+            # torchaudio.transforms.FrequencyMasking(30),
+            # torchaudio.transforms.FrequencyMasking(30),
             # torchaudio.transforms.TimeMasking(100, p=0.2),
             # torchaudio.transforms.TimeMasking(100, p=0.2),
-            torchaudio.transforms.TimeMasking(40, p=0.2),
-            torchaudio.transforms.TimeMasking(40, p=0.2),
+            # torchaudio.transforms.TimeMasking(40, p=0.2),
+            # torchaudio.transforms.TimeMasking(40, p=0.2),
             # torchaudio.transforms.TimeMasking(30, p=0.2),
             # torchaudio.transforms.TimeMasking(30, p=0.2),
             # torchaudio.transforms.TimeMasking(30, p=0.2),
@@ -102,7 +113,7 @@ class TrainTransform:
             # torchaudio.transforms.TimeMasking(30, p=0.2),
             # torchaudio.transforms.TimeMasking(30, p=0.2),
             # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # spec_aug_transform,
+            spec_aug_transform,
             FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
         )
 
@@ -146,7 +157,8 @@ def get_data_module(librispeech_path, global_stats_path, sp_model_path):
         val_transform=val_transform,
         test_transform=test_transform,
         batch_size=None,
-        max_tokens=2200,
+        # max_tokens=2200,
+        max_tokens=2000,  # shuf
         # batch_size=2,
         # max_tokens=700,
         # train_num_buckets=1,
