@@ -53,6 +53,32 @@ class WarmupLR(torch.optim.lr_scheduler._LRScheduler):
             return [scaling_factor * base_lr for base_lr in self.base_lrs]
 
 
+class NoamLR(torch.optim.lr_scheduler._LRScheduler):
+    r"""
+    https://nn.labml.ai/optimizers/noam.html
+    https://github.com/espnet/espnet/blob/master/espnet/nets/pytorch_backend/transformer/optimizer.py
+    https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/transducer_stateless/transformer.py
+    """
+
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        warmup_steps: int,
+        model_size: int,
+        last_epoch=-1,
+        verbose=False,
+    ):
+        self.step_per_epoch = 3000
+        self.warmup_steps = warmup_steps * self.step_per_epoch
+        self.model_size = model_size
+        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
+
+    def get_lr(self):
+        scaling_factor = self.model_size ** (-0.5) \
+            * min((self._step_count * self.step_per_epoch) ** (-0.5), (self._step_count * self.step_per_epoch) * self.warmup_steps ** (-1.5))
+        return [scaling_factor * base_lr for base_lr in self.base_lrs]
+
+
 def post_process_hypos(
     hypos: List[Hypothesis], sp_model: spm.SentencePieceProcessor
 ) -> List[Tuple[str, float, List[int], List[int]]]:
@@ -92,8 +118,14 @@ class ConformerRNNTModule(LightningModule):
         # For greater customizability, please refer to ``conformer_rnnt_model``.
         self.model = conformer_rnnt_base()
         self.loss = torchaudio.transforms.RNNTLoss(reduction="sum")
+
+        # Default:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=8e-4, betas=(0.9, 0.98), eps=1e-9)
         self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.96)
+
+        # # Noam:
+        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=5.0, betas=(0.9, 0.98), eps=1e-9, weight_decay=0)
+        # self.warmup_lr_scheduler = NoamLR(self.optimizer, warmup_steps=30, model_size=512)
 
     def _step(self, batch, _, step_type):
         if batch is None:
