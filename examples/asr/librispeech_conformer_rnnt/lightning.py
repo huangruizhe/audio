@@ -52,6 +52,12 @@ class WarmupLR(torch.optim.lr_scheduler._LRScheduler):
             scaling_factor = self.anneal_factor ** (self._step_count - self.force_anneal_step)
             return [scaling_factor * base_lr for base_lr in self.base_lrs]
 
+            # scaling_factor = self.anneal_factor ** ((self._step_count - self.force_anneal_step) * 0.4)
+            # return [scaling_factor * base_lr for base_lr in self.base_lrs]
+
+            # scaling_factor = 1.0 if self._step_count < 250 else 0.6
+            # return [2e-4 * scaling_factor for base_lr in self.base_lrs]
+
 
 class NoamLR(torch.optim.lr_scheduler._LRScheduler):
     r"""
