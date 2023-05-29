@@ -52,7 +52,7 @@ class WarmupLR(torch.optim.lr_scheduler._LRScheduler):
             scaling_factor = self.anneal_factor ** (self._step_count - self.force_anneal_step)
             return [scaling_factor * base_lr for base_lr in self.base_lrs]
 
-            # scaling_factor = self.anneal_factor ** ((self._step_count - self.force_anneal_step) * 0.4)
+            # scaling_factor = self.anneal_factor ** ((self._step_count - self.force_anneal_step) * 0.3)
             # return [scaling_factor * base_lr for base_lr in self.base_lrs]
 
             # scaling_factor = 1.0 if self._step_count < 250 else 0.6
@@ -128,6 +128,7 @@ class ConformerRNNTModule(LightningModule):
         # Default:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=8e-4, betas=(0.9, 0.98), eps=1e-9)
         self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.96)
+        # self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 50, 0.96)
 
         # # Noam:
         # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=5.0, betas=(0.9, 0.98), eps=1e-9, weight_decay=0)
@@ -149,6 +150,8 @@ class ConformerRNNTModule(LightningModule):
         )
         loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
         self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True)
+
+        batch_size = batch.features.size(0)
 
         return loss
 

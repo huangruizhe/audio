@@ -52,6 +52,9 @@ def run_train(args):
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path))
     trainer.fit(model, data_module, ckpt_path=args.checkpoint_path)
 
+    # model = ConformerRNNTModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model)
+    # trainer.fit(model, data_module)
+
 
 def cli_main():
     parser = ArgumentParser()
