@@ -134,6 +134,9 @@ class ConformerRNNTModule(LightningModule):
         # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=5.0, betas=(0.9, 0.98), eps=1e-9, weight_decay=0)
         # self.warmup_lr_scheduler = NoamLR(self.optimizer, warmup_steps=30, model_size=512)
 
+        self._total_loss = 0
+        self._total_frames = 0
+
     def _step(self, batch, _, step_type):
         if batch is None:
             return None
@@ -151,7 +154,13 @@ class ConformerRNNTModule(LightningModule):
         loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
         self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True)
 
-        batch_size = batch.features.size(0)
+        subsampling_factor = 4
+        num_frames = (batch.feature_lengths // subsampling_factor).sum().item()
+        # https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/conformer_ctc2/train.py#L699
+        reset_interval = 200
+        self._total_loss = (self._total_loss * (1 - 1 / reset_interval)) + loss.item()
+        self._total_frames = (self._total_frames * (1 - 1 / reset_interval)) + num_frames
+        self.log(f"Losses_normalized/{step_type}_loss", self._total_loss / self._total_frames, on_step=True, on_epoch=True)
 
         return loss
 
