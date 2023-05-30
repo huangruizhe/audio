@@ -124,14 +124,14 @@ def cli_main():
         help="Number of epochs to train for. (Default: 120)",
     )
     parser.add_argument(
-        "--config",
+        "--train-config",
         default=None,
         type=pathlib.Path,
         help="Path to config file.",
     )
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    config = load_config(args.train_config)
     config = update_config(config, args)
 
     run_train(args, config)
