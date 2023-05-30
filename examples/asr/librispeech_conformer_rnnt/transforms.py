@@ -68,40 +68,48 @@ def _extract_features(data_pipeline, samples: List):
 
 
 class TrainTransform:
-    def __init__(self, global_stats_path: str, sp_model_path: str):
+    def __init__(self, global_stats_path: str, sp_model_path: str, config: dict):
         self.sp_model = spm.SentencePieceProcessor(model_file=sp_model_path)
 
-        spec_aug_transform = T.SpecAugment(
-            n_time_masks=10,
-            time_mask_param=30,
-            p=0.2,
-            n_freq_masks=2,
-            freq_mask_param=27,
-            iid_masks=True,
-            zero_masking=True,
-        )
-
-        self.train_data_pipeline = torch.nn.Sequential(
-            FunctionalModule(_piecewise_linear_log),
-            GlobalStatsNormalization(global_stats_path),
-            FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
-            # torchaudio.transforms.FrequencyMasking(27),
-            # torchaudio.transforms.FrequencyMasking(27),
-            # torchaudio.transforms.TimeMasking(100, p=0.2),
-            # torchaudio.transforms.TimeMasking(100, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            # torchaudio.transforms.TimeMasking(30, p=0.2),
-            spec_aug_transform,
-            FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
-        )
+        if config["specaug_conf"]["new_spec_aug_api"]:
+            spec_aug_transform = T.SpecAugment(
+                n_time_masks=config["specaug_conf"]["n_time_masks"],
+                time_mask_param=config["specaug_conf"]["time_mask_param"],
+                p=config["specaug_conf"]["p"],
+                n_freq_masks=config["specaug_conf"]["n_freq_masks"],
+                freq_mask_param=config["specaug_conf"]["freq_mask_param"],
+                iid_masks=config["specaug_conf"]["iid_masks"],
+                zero_masking=config["specaug_conf"]["zero_masking"],
+            )
+            self.train_data_pipeline = torch.nn.Sequential(
+                FunctionalModule(_piecewise_linear_log),
+                GlobalStatsNormalization(global_stats_path),
+                FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
+                spec_aug_transform,
+                FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
+            )
+        else:
+            layers = []
+            layers.append(FunctionalModule(_piecewise_linear_log))
+            layers.append(GlobalStatsNormalization(global_stats_path))
+            layers.append(FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)))
+            for _ in range(config["specaug_conf"]["n_freq_masks"]):
+                layers.append(
+                    torchaudio.transforms.FrequencyMasking(
+                        config["specaug_conf"]["freq_mask_param"]
+                    )
+                )
+            for _ in range(config["specaug_conf"]["n_time_masks"]):
+                layers.append(
+                    torchaudio.transforms.TimeMasking(
+                        config["specaug_conf"]["time_mask_param"], 
+                        p=config["specaug_conf"]["p"]
+                    )
+                )
+            layers.append(FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)))
+            self.train_data_pipeline = torch.nn.Sequential(
+                *layers,
+            )
 
     def __call__(self, samples: List):
         features, feature_lengths = _extract_features(self.train_data_pipeline, samples)
@@ -131,8 +139,8 @@ class TestTransform:
         return self.val_transforms([sample]), [sample]
 
 
-def get_data_module(librispeech_path, global_stats_path, sp_model_path):
-    train_transform = TrainTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path)
+def get_data_module(librispeech_path, global_stats_path, sp_model_path, config):
+    train_transform = TrainTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path, config=config)
     val_transform = ValTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path)
     test_transform = TestTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path)
     return LibriSpeechDataModule(
@@ -140,7 +148,7 @@ def get_data_module(librispeech_path, global_stats_path, sp_model_path):
         train_transform=train_transform,
         val_transform=val_transform,
         test_transform=test_transform,
-        batch_size=None,
-        max_tokens=1800,
-        # train_num_buckets=1,
+        batch_size=config["optim_config"]["batch_size"],
+        max_tokens=config["optim_config"]["max_tokens"],
+        train_num_buckets=config["optim_config"]["train_num_buckets"],
     )

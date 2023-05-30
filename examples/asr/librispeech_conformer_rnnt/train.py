@@ -5,19 +5,35 @@ import sentencepiece as spm
 
 from lightning import ConformerRNNTModule
 from pytorch_lightning import seed_everything, Trainer
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, Callback
 from pytorch_lightning.strategies import DDPStrategy
 from transforms import get_data_module
+from config import load_config, update_config, save_config
 
 
-def run_train(args):
-    seed_everything(1)
-    checkpoint_dir = args.exp_dir / "checkpoints"
+class MyTrainStartCallback(Callback):
+    def on_train_start(self, trainer, pl_module):
+        if pl_module.global_rank == 0:
+            print("Training is starting ...")
+
+            print("----------------- Training Configuration -------------------")
+            print(pl_module.config)
+            print("------------------------------------------------------------")
+
+            config_file = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "train_config.yaml"
+            config_file = config_file.absolute()
+            print(f"Saving config to: {config_file}")
+            save_config(pl_module.config, config_file)
+
+
+def run_train(args, config):
+    seed_everything(config["training_config"]["seed"])
+    checkpoint_dir = pathlib.Path(config["training_config"]["exp_dir"]) / "checkpoints"
     checkpoint = ModelCheckpoint(
         checkpoint_dir,
         monitor="Losses/val_loss",
         mode="min",
-        save_top_k=5,
+        save_top_k=config["training_config"]["save_top_k"],
         save_weights_only=False,
         verbose=True,
     )
@@ -25,7 +41,7 @@ def run_train(args):
         checkpoint_dir,
         monitor="Losses/train_loss",
         mode="min",
-        save_top_k=5,
+        save_top_k=config["training_config"]["save_top_k"],
         save_weights_only=False,
         verbose=True,
     )
@@ -34,23 +50,24 @@ def run_train(args):
         checkpoint,
         train_checkpoint,
         lr_monitor,
+        MyTrainStartCallback(),
     ]
     trainer = Trainer(
-        default_root_dir=args.exp_dir,
-        max_epochs=args.epochs,
-        num_nodes=args.nodes,
-        devices=args.gpus,
+        default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
+        max_epochs=config["training_config"]["epochs"],
+        num_nodes=config["training_config"]["nodes"],
+        devices=config["training_config"]["gpus"],
         accelerator="gpu",
         strategy=DDPStrategy(find_unused_parameters=False),
         callbacks=callbacks,
         reload_dataloaders_every_n_epochs=1,
-        gradient_clip_val=10.0,
+        gradient_clip_val=config["training_config"]["gradient_clip_val"],
     )
 
     sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
-    model = ConformerRNNTModule(sp_model)
-    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path))
-    trainer.fit(model, data_module, ckpt_path=args.checkpoint_path)
+    model = ConformerRNNTModule(sp_model, config)
+    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path), config)
+    trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
     # model = ConformerRNNTModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model)
     # trainer.fit(model, data_module)
@@ -66,8 +83,8 @@ def cli_main():
     )
     parser.add_argument(
         "--exp-dir",
-        default=pathlib.Path("./exp"),
-        type=pathlib.Path,
+        default=None,
+        type=str,
         help="Directory to save checkpoints and logs to. (Default: './exp')",
     )
     parser.add_argument(
@@ -90,24 +107,34 @@ def cli_main():
     )
     parser.add_argument(
         "--nodes",
-        default=4,
+        default=None,
         type=int,
         help="Number of nodes to use for training. (Default: 4)",
     )
     parser.add_argument(
         "--gpus",
-        default=8,
+        default=None,
         type=int,
         help="Number of GPUs per node to use for training. (Default: 8)",
     )
     parser.add_argument(
         "--epochs",
-        default=120,
+        default=None,
         type=int,
         help="Number of epochs to train for. (Default: 120)",
     )
+    parser.add_argument(
+        "--config",
+        default=None,
+        type=pathlib.Path,
+        help="Path to config file.",
+    )
     args = parser.parse_args()
-    run_train(args)
+
+    config = load_config(args.config)
+    config = update_config(config, args)
+
+    run_train(args, config)
 
 
 if __name__ == "__main__":

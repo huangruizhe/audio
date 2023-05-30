@@ -8,7 +8,7 @@ import torch
 import torchaudio
 from pytorch_lightning import LightningModule
 from torchaudio.models import Hypothesis, RNNTBeamSearch
-from torchaudio.prototype.models import conformer_rnnt_base
+from torchaudio.prototype.models import conformer_rnnt_base, conformer_rnnt_model
 
 
 logger = logging.getLogger()
@@ -107,8 +107,30 @@ def post_process_hypos(
     return nbest_batch
 
 
+def get_conformer_rnnt(config):
+    return conformer_rnnt_model(
+        input_dim=config["rnnt_config"]["input_dim"],
+        encoding_dim=config["rnnt_config"]["encoding_dim"],
+        time_reduction_stride=config["rnnt_config"]["time_reduction_stride"],
+        conformer_input_dim=config["rnnt_config"]["conformer_input_dim"],
+        conformer_ffn_dim=config["rnnt_config"]["conformer_ffn_dim"],
+        conformer_num_layers=config["rnnt_config"]["conformer_num_layers"],
+        conformer_num_heads=config["rnnt_config"]["conformer_num_heads"],
+        conformer_depthwise_conv_kernel_size=config["rnnt_config"]["conformer_depthwise_conv_kernel_size"],
+        conformer_dropout=config["rnnt_config"]["conformer_dropout"],
+        num_symbols=config["rnnt_config"]["num_symbols"],
+        symbol_embedding_dim=config["rnnt_config"]["symbol_embedding_dim"],
+        num_lstm_layers=config["rnnt_config"]["num_lstm_layers"],
+        lstm_hidden_dim=config["rnnt_config"]["lstm_hidden_dim"],
+        lstm_layer_norm=config["rnnt_config"]["lstm_layer_norm"],
+        lstm_layer_norm_epsilon=config["rnnt_config"]["lstm_layer_norm_epsilon"],
+        lstm_dropout=config["rnnt_config"]["lstm_dropout"],
+        joiner_activation=config["rnnt_config"]["joiner_activation"],
+    )
+
+
 class ConformerRNNTModule(LightningModule):
-    def __init__(self, sp_model):
+    def __init__(self, sp_model, config):
         super().__init__()
 
         self.sp_model = sp_model
@@ -118,17 +140,30 @@ class ConformerRNNTModule(LightningModule):
             f"vocabulary size {_expected_spm_vocab_size}, but the given SentencePiece model has a vocabulary size "
             f"of {spm_vocab_size}. Please provide a correctly configured SentencePiece model."
         )
+        assert spm_vocab_size == config["spm_vocab_size"]
         self.blank_idx = spm_vocab_size
+
+        self.config = config
 
         # ``conformer_rnnt_base`` hardcodes a specific Conformer RNN-T configuration.
         # For greater customizability, please refer to ``conformer_rnnt_model``.
-        self.model = conformer_rnnt_base()
-        self.loss = torchaudio.transforms.RNNTLoss(reduction="sum")
+        self.model = get_conformer_rnnt(config)
+        self.loss = torchaudio.transforms.RNNTLoss(reduction=config["optim_config"]["reduction"])
 
         # Default:
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=8e-4, betas=(0.9, 0.98), eps=1e-9)
-        self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.96)
-        # self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 50, 0.96)
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), 
+            lr=config["optim_config"]["lr"], 
+            betas=(0.9, 0.98), 
+            eps=1e-9, 
+            weight_decay=config["optim_config"]["weight_decay"]
+        )
+        self.warmup_lr_scheduler = WarmupLR(
+            self.optimizer, 
+            config["optim_config"]["warmup_steps"], 
+            config["optim_config"]["force_anneal_step"], 
+            config["optim_config"]["anneal_factor"]
+        )
 
         # # Noam:
         # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=5.0, betas=(0.9, 0.98), eps=1e-9, weight_decay=0)
@@ -154,7 +189,7 @@ class ConformerRNNTModule(LightningModule):
         loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
         self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True)
 
-        subsampling_factor = 4
+        subsampling_factor = self.config["rnnt_config"]["time_reduction_stride"]
         num_frames = (batch.feature_lengths // subsampling_factor).sum().item()
         # https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/conformer_ctc2/train.py#L699
         reset_interval = 200
