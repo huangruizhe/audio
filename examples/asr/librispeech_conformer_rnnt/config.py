@@ -120,10 +120,25 @@ def load_config(config_file):
     return config
 
 
+def my_stringify_dict(d):
+    str_d = dict()
+
+    for k, v in d.items():
+        if type(v) is pathlib.Path:
+            str_d[k] = str(v.absolute())
+        elif type(v) is dict:
+            str_d[k] = my_stringify_dict(v)
+        else:
+            str_d[k] = v
+    return str_d
+
+
 def save_config(config, config_file):
+    _str_config = my_stringify_dict(config)
+
     if not pathlib.Path(config_file).exists():
         with open(config_file, 'w') as fout:
-            yaml.dump(config, fout)
+            yaml.dump(_str_config, fout)
     else:
         print(f"Skipped saving config file. Existed: {config_file}")
 
