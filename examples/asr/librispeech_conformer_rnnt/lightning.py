@@ -11,7 +11,7 @@ from torchaudio.models import Hypothesis, RNNTBeamSearch
 from torchaudio.prototype.models import conformer_rnnt_base, conformer_rnnt_model
 
 
-logger = logging.getLogger()
+logger = logging.getLogger("lightning.pytorch.core")
 
 _expected_spm_vocab_size = 1023
 
@@ -172,6 +172,9 @@ class ConformerRNNTModule(LightningModule):
         self._total_loss = 0
         self._total_frames = 0
 
+        self._total_val_loss = 0
+        self._total_val_frames = 0
+
     def _step(self, batch, _, step_type):
         if batch is None:
             return None
@@ -187,7 +190,7 @@ class ConformerRNNTModule(LightningModule):
             prepended_target_lengths,
         )
         loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
-        self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True)
+        self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True, sync_dist=True)
 
         subsampling_factor = self.config["rnnt_config"]["time_reduction_stride"]
         num_frames = (batch.feature_lengths // subsampling_factor).sum().item()
@@ -195,7 +198,11 @@ class ConformerRNNTModule(LightningModule):
         reset_interval = 200
         self._total_loss = (self._total_loss * (1 - 1 / reset_interval)) + loss.item()
         self._total_frames = (self._total_frames * (1 - 1 / reset_interval)) + num_frames
-        self.log(f"Losses_normalized/{step_type}_loss", self._total_loss / self._total_frames, on_step=True, on_epoch=True)
+        self.log(f"Losses_normalized/{step_type}_loss", self._total_loss / self._total_frames, on_step=True, on_epoch=True, sync_dist=True)
+
+        if step_type == "val":
+            self._total_val_loss += loss.item()
+            self._total_val_frames += num_frames
 
         return loss
 
@@ -239,6 +246,19 @@ class ConformerRNNTModule(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         return self._step(batch, batch_idx, "val")
+
+    def on_validation_epoch_end(self):
+        # This still has some issue: some utterance may be double-counted
+        # https://lightning.ai/docs/pytorch/stable/common/evaluation_intermediate.html#validation
+        
+        _total_val_loss = self.all_gather(self._total_val_loss)
+        _total_val_frames = self.all_gather(self._total_val_frames)
+
+        self.log(f"Losses_val/val_loss", _total_val_loss.sum() / _total_val_frames.sum(), on_epoch=True, sync_dist=True, rank_zero_only=True)
+        if self.global_rank == 0:
+            logger.info(f"\nvalidation loss: avg={_total_val_loss.sum() / _total_val_frames.sum()} over {_total_val_frames.sum()} frames\n")
+        self._total_val_loss = 0
+        self._total_val_frames = 0
 
     def test_step(self, batch, batch_idx):
         return self._step(batch, batch_idx, "test")

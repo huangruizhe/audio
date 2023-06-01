@@ -1,7 +1,9 @@
 from typing import Any
 import yaml
 import pathlib
+import logging
 
+logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
 class config_dict(dict):
     # https://stackoverflow.com/questions/2328235/pythonextend-the-dict-class
@@ -127,6 +129,7 @@ default_config = {
 # https://python.land/data-processing/python-yaml
 def load_config(config_file):
     if config_file is None or not pathlib.Path(config_file).exists():
+        logging.info(f"No config_file found. Using default config.")
         return default_config
     
     with open(config_file, 'r') as fin:
@@ -154,7 +157,7 @@ def save_config(config, config_file):
         with open(config_file, 'w') as fout:
             yaml.dump(_str_config, fout)
     else:
-        print(f"Skipped saving config file. Existed: {config_file}")
+        logging.info(f"Skipped saving config file. Existed: {config_file}")
 
 
 def update_config(config, args):

@@ -9,12 +9,15 @@ from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, Ca
 from pytorch_lightning.strategies import DDPStrategy
 from transforms import get_data_module
 from config import load_config, update_config, save_config
+import logging
+
+logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
 
 class MyTrainStartCallback(Callback):
     def on_train_start(self, trainer, pl_module):
         if pl_module.global_rank == 0:
-            print("Training is starting ...")
+            logging.info("Training is starting ...")
 
             print("----------------- Training Configuration -------------------")
             print(pl_module.config)
@@ -22,7 +25,7 @@ class MyTrainStartCallback(Callback):
 
             config_file = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "train_config.yaml"
             config_file = config_file.absolute()
-            print(f"Saving config to: {config_file}")
+            logging.info(f"Saving config to: {config_file}")
             save_config(pl_module.config, config_file)
 
 
@@ -62,6 +65,7 @@ def run_train(args, config):
         callbacks=callbacks,
         reload_dataloaders_every_n_epochs=1,
         gradient_clip_val=config["training_config"]["gradient_clip_val"],
+        # limit_train_batches=10,
     )
 
     sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
