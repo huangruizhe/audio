@@ -250,11 +250,12 @@ class ConformerRNNTModule(LightningModule):
     def on_validation_epoch_end(self):
         # This still has some issue: some utterance may be double-counted
         # https://lightning.ai/docs/pytorch/stable/common/evaluation_intermediate.html#validation
-        
+
         _total_val_loss = self.all_gather(self._total_val_loss)
         _total_val_frames = self.all_gather(self._total_val_frames)
 
         self.log(f"Losses_val/val_loss", _total_val_loss.sum() / _total_val_frames.sum(), on_epoch=True, sync_dist=True, rank_zero_only=True)
+        self.log(f"Losses_val/val_frames", _total_val_frames.sum(), on_epoch=True, sync_dist=True, rank_zero_only=True)
         if self.global_rank == 0:
             logger.info(f"\nvalidation loss: avg={_total_val_loss.sum() / _total_val_frames.sum()} over {_total_val_frames.sum()} frames\n")
         self._total_val_loss = 0
