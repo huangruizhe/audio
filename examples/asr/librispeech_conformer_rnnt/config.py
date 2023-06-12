@@ -19,6 +19,7 @@ default_config = {
     "rnnt_config": {
         "input_dim": 80,
         "encoding_dim": 512,
+        "subsampling_type": "conv",
         "time_reduction_stride": 4,
         "conformer_input_dim": 512,
         "conformer_ffn_dim": 2048,

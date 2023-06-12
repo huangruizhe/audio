@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from torchaudio.models import Conformer, RNNT
 from torchaudio.models.rnnt import _Joiner, _Predictor, _TimeReduction, _Transcriber
+from torchaudio.models import Conv2dSubsampling
 
 
 TrieNode = Tuple[Dict[int, "TrieNode"], int, Optional[Tuple[int, int]]]
@@ -22,10 +23,26 @@ class _ConformerEncoder(torch.nn.Module, _Transcriber):
         conformer_num_heads: int,
         conformer_depthwise_conv_kernel_size: int,
         conformer_dropout: float,
+        subsampling_type: str = "splice",
     ) -> None:
         super().__init__()
-        self.time_reduction = _TimeReduction(time_reduction_stride)
-        self.input_linear = torch.nn.Linear(input_dim * time_reduction_stride, conformer_input_dim)
+
+        if subsampling_type == "splice":
+            # Default subsampling in torchaudio:
+            self.time_reduction = _TimeReduction(time_reduction_stride)
+            self.input_linear = torch.nn.Linear(input_dim * time_reduction_stride, conformer_input_dim)
+        elif subsampling_type == "conv":
+            # Default subsampling in espnet:
+            # time_reduction_stride=4 is hard-wired in the following code
+            self.subsampling = Conv2dSubsampling(
+                input_dim,
+                conformer_input_dim,
+                dropout_rate=0.1,
+                pos_enc=None,
+            )
+        else:
+            raise NotImplementedError
+
         self.conformer = Conformer(
             num_layers=conformer_num_layers,
             input_dim=conformer_input_dim,
@@ -491,6 +508,7 @@ def conformer_rnnt_model(
     lstm_layer_norm_epsilon: int,
     lstm_dropout: int,
     joiner_activation: str,
+    subsampling_type: str = "splice",
 ) -> RNNT:
     r"""Builds Conformer-based recurrent neural network transducer (RNN-T) model.
 
@@ -529,6 +547,7 @@ def conformer_rnnt_model(
         conformer_num_heads=conformer_num_heads,
         conformer_depthwise_conv_kernel_size=conformer_depthwise_conv_kernel_size,
         conformer_dropout=conformer_dropout,
+        subsampling_type=subsampling_type,
     )
     predictor = _Predictor(
         num_symbols=num_symbols,

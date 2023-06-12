@@ -29,6 +29,7 @@ from .wav2vec2 import (
     wavlm_model,
 )
 from .wavernn import WaveRNN
+from .subsampling import Conv2dSubsampling
 
 
 __all__ = [
@@ -68,4 +69,5 @@ __all__ = [
     "hdemucs_low",
     "hdemucs_medium",
     "hdemucs_high",
+    "Conv2dSubsampling",
 ]
