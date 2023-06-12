@@ -16,6 +16,7 @@ _decibel = 2 * 20 * math.log10(torch.iinfo(torch.int16).max)
 _gain = pow(10, 0.05 * _decibel)
 
 _spectrogram_transform = torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_fft=400, n_mels=80, hop_length=160)
+_speed_perturb_transform = torchaudio.transforms.SpeedPerturbation(orig_freq=16000, factors=[0.9, 1.0, 1.1])
 
 
 def _piecewise_linear_log(x):
@@ -67,10 +68,20 @@ def _extract_features(data_pipeline, samples: List):
     return features, lengths
 
 
+def _extract_features_train(data_pipeline, samples: List):
+    samples = [_speed_perturb_transform(sample[0].squeeze()) for sample in samples]
+    mel_features = [_spectrogram_transform(sample[0].squeeze()).transpose(1, 0) for sample in samples]
+    features = torch.nn.utils.rnn.pad_sequence(mel_features, batch_first=True)
+    features = data_pipeline(features)
+    lengths = torch.tensor([elem.shape[0] for elem in mel_features], dtype=torch.int32)
+    return features, lengths
+
+
 class TrainTransform:
     def __init__(self, global_stats_path: str, sp_model_path: str, config: dict):
         self.sp_model = spm.SentencePieceProcessor(model_file=sp_model_path)
 
+        self.config = config
         if config["specaug_conf"]["new_spec_aug_api"]:
             spec_aug_transform = T.SpecAugment(
                 n_time_masks=config["specaug_conf"]["n_time_masks"],
@@ -112,7 +123,10 @@ class TrainTransform:
             )
 
     def __call__(self, samples: List):
-        features, feature_lengths = _extract_features(self.train_data_pipeline, samples)
+        if self.config["speed_perturbation"] is None or self.config["speed_perturbation"] is False:
+            features, feature_lengths = _extract_features(self.train_data_pipeline, samples)
+        else:
+            features, feature_lengths = _extract_features_train(self.train_data_pipeline, samples)
         targets, target_lengths = _extract_labels(self.sp_model, samples)
         return Batch(features, feature_lengths, targets, target_lengths)
 

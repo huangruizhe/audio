@@ -15,40 +15,19 @@ default_config = {
     # model:
     "spm_vocab_size": 1023,
 
-    # # Xiaohui's
-    # "rnnt_config": {
-    #     "input_dim": 80,
-    #     "encoding_dim": 512,
-    #     "time_reduction_stride": 4,
-    #     "conformer_input_dim": 512,
-    #     "conformer_ffn_dim": 2048,
-    #     "conformer_num_layers": 12,
-    #     "conformer_num_heads": 8,
-    #     "conformer_depthwise_conv_kernel_size": 31,
-    #     "conformer_dropout": 0.1,
-    #     "num_symbols": 1024,
-    #     "symbol_embedding_dim": 1024,
-    #     "num_lstm_layers": 2,
-    #     "lstm_hidden_dim": 512,
-    #     "lstm_layer_norm": True,
-    #     "lstm_layer_norm_epsilon": 1e-5,
-    #     "lstm_dropout": 0.3,
-    #     "joiner_activation": "tanh",
-    # },
-
-    # Default
+    # Xiaohui's
     "rnnt_config": {
         "input_dim": 80,
-        "encoding_dim": 1024,
+        "encoding_dim": 512,
         "time_reduction_stride": 4,
-        "conformer_input_dim": 256,
-        "conformer_ffn_dim": 1024,
-        "conformer_num_layers": 16,
-        "conformer_num_heads": 4,
+        "conformer_input_dim": 512,
+        "conformer_ffn_dim": 2048,
+        "conformer_num_layers": 12,
+        "conformer_num_heads": 8,
         "conformer_depthwise_conv_kernel_size": 31,
         "conformer_dropout": 0.1,
         "num_symbols": 1024,
-        "symbol_embedding_dim": 256,
+        "symbol_embedding_dim": 1024,
         "num_lstm_layers": 2,
         "lstm_hidden_dim": 512,
         "lstm_layer_norm": True,
@@ -57,10 +36,31 @@ default_config = {
         "joiner_activation": "tanh",
     },
 
+    # # Default
+    # "rnnt_config": {
+    #     "input_dim": 80,
+    #     "encoding_dim": 1024,
+    #     "time_reduction_stride": 4,
+    #     "conformer_input_dim": 256,
+    #     "conformer_ffn_dim": 1024,
+    #     "conformer_num_layers": 16,
+    #     "conformer_num_heads": 4,
+    #     "conformer_depthwise_conv_kernel_size": 31,
+    #     "conformer_dropout": 0.1,
+    #     "num_symbols": 1024,
+    #     "symbol_embedding_dim": 256,
+    #     "num_lstm_layers": 2,
+    #     "lstm_hidden_dim": 512,
+    #     "lstm_layer_norm": True,
+    #     "lstm_layer_norm_epsilon": 1e-5,
+    #     "lstm_dropout": 0.3,
+    #     "joiner_activation": "tanh",
+    # },
+
     # training:
     "training_config": {
         "seed": 1,
-        "save_top_k": 5,
+        "save_top_k": 20,
         "checkpoint_path": None,
         "exp_dir": "./exp",
         "nodes": 4,
@@ -71,21 +71,33 @@ default_config = {
     
     "optim_config": {
         "warmup_steps": 40,
-        "force_anneal_step": 120, 
+        "force_anneal_step": 120,
         "anneal_factor": 0.96,
         "lr": 8e-4,
         "batch_size": None,
-        "max_tokens": 1800,
+        "max_tokens": 1200,
         "train_num_buckets": 50,
         "reduction": "sum",
-        "weight_decay": 0,
+        "weight_decay": 1e-6,
     },
 
-    # # Xiaohui's:
+    # Xiaohui's:
+    "specaug_conf": {
+        "new_spec_aug_api": False,
+        "n_time_masks": 10,
+        "time_mask_param": 30,
+        "p": 0.2,
+        "n_freq_masks": 2,
+        "freq_mask_param": 27,
+        "iid_masks": True,
+        "zero_masking": True,
+    },
+
+    # # Default:
     # "specaug_conf": {
     #     "new_spec_aug_api": False,
-    #     "n_time_masks": 10,
-    #     "time_mask_param": 30,
+    #     "n_time_masks": 2,
+    #     "time_mask_param": 100,
     #     "p": 0.2,
     #     "n_freq_masks": 2,
     #     "freq_mask_param": 27,
@@ -93,17 +105,7 @@ default_config = {
     #     "zero_masking": True,
     # },
 
-    # Default:
-    "specaug_conf": {
-        "new_spec_aug_api": False,
-        "n_time_masks": 2,
-        "time_mask_param": 100,
-        "p": 0.2,
-        "n_freq_masks": 2,
-        "freq_mask_param": 27,
-        "iid_masks": True,
-        "zero_masking": True,
-    },
+    "speed_perturbation": False,
 
     # # Espnet's:
     # "specaug_conf": {
@@ -126,6 +128,15 @@ default_config = {
 }
 
 
+def update_missing_fields(d, d_ref):
+    for k, v in d_ref.items():
+        if k not in d:
+            d[k] = d_ref[k]
+        elif type(v) is dict:
+            update_missing_fields(d[k], d_ref[k])
+    return d
+
+
 # https://python.land/data-processing/python-yaml
 def load_config(config_file):
     if config_file is None or not pathlib.Path(config_file).exists():
@@ -134,6 +145,8 @@ def load_config(config_file):
     
     with open(config_file, 'r') as fin:
         config = yaml.safe_load(fin)
+    
+    update_missing_fields(config, default_config)
     return config
 
 

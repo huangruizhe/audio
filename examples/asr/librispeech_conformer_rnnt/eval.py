@@ -33,6 +33,8 @@ def run_eval(args, config):
         for idx, (batch, sample) in enumerate(dataloader):
             actual = sample[0][2]
             predicted = model(batch)
+            # print(f"[actual   ] {actual}")
+            # print(f"[predicted] {predicted}")
             total_edit_distance += compute_word_level_distance(actual, predicted)
             total_length += len(actual.split())
             if idx % 100 == 0:

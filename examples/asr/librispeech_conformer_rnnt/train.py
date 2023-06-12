@@ -73,7 +73,9 @@ def run_train(args, config):
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path), config)
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
-    # model = ConformerRNNTModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model)
+    # # Resume training with a different lr scheduler:
+    # model = ConformerRNNTModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model, config=config)
+    # data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path), config)
     # trainer.fit(model, data_module)
 
 
