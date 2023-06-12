@@ -70,6 +70,39 @@ def run_train(args, config):
 
     sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
     model = ConformerRNNTModule(sp_model, config)
+
+    # import numpy as np
+    
+    # total_params = sum([np.prod(p.size()) for p in model.model.parameters()])
+    # trainable_model_parameters = filter(lambda p: p.requires_grad, model.model.parameters())
+    # trainable_params = sum([np.prod(p.size()) for p in trainable_model_parameters])
+    
+    # encoder_params = sum([np.prod(p.size()) for p in model.model.transcriber.parameters()])
+    # encoder_input_linear_params = sum([np.prod(p.size()) for p in model.model.transcriber.input_linear.parameters()])
+    # encoder_conformer_params = sum([np.prod(p.size()) for p in model.model.transcriber.conformer.parameters()])
+    # encoder_conformer0_params = sum([np.prod(p.size()) for p in model.model.transcriber.conformer.conformer_layers[0].parameters()])
+
+    # decoder_params = sum([np.prod(p.size()) for p in model.model.predictor.parameters()])
+    # joint_network_params = sum([np.prod(p.size()) for p in model.model.joiner.parameters()])
+
+    # with open("/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_rnnt/model_info_conv.txt", "w") as fout:
+    #     print(model, file=fout)
+    #     print("", file=fout)
+    #     print(f"#total_params={total_params}", file=fout)
+    #     print(f"#trainable_params={trainable_params}", file=fout)
+    #     print("", file=fout)
+        
+    #     print(f"#encoder_params={encoder_params}", file=fout)
+    #     print(f"#encoder_input_linear_params={encoder_input_linear_params}", file=fout)
+    #     print(f"#encoder_conformer_params={encoder_conformer_params}", file=fout)
+    #     print(f"#encoder_conformer0_params={encoder_conformer0_params}", file=fout)
+    #     print("", file=fout)
+
+    #     print(f"#decoder_params={decoder_params}", file=fout)
+    #     print("", file=fout)
+
+    #     print(f"#joint_network_params={joint_network_params}", file=fout)
+
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path), config)
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 

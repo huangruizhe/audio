@@ -10,6 +10,26 @@ from torchaudio.models import Conv2dSubsampling
 TrieNode = Tuple[Dict[int, "TrieNode"], int, Optional[Tuple[int, int]]]
 
 
+def make_source_mask(lengths: torch.Tensor) -> torch.Tensor:
+    """Create source mask for given lengths.
+
+    Reference: https://github.com/k2-fsa/icefall/blob/master/icefall/utils.py
+
+    Args:
+        lengths: Sequence lengths. (B,)
+
+    Returns:
+        : Mask for the sequence lengths. (B, max_len)
+
+    """
+    max_len = lengths.max()
+    batch_size = lengths.size(0)
+
+    expanded_lengths = torch.arange(max_len).expand(batch_size, max_len).to(lengths)
+
+    return expanded_lengths >= lengths.unsqueeze(1)
+
+
 class _ConformerEncoder(torch.nn.Module, _Transcriber):
     def __init__(
         self,
@@ -27,6 +47,7 @@ class _ConformerEncoder(torch.nn.Module, _Transcriber):
     ) -> None:
         super().__init__()
 
+        self.subsampling_type = subsampling_type
         if subsampling_type == "splice":
             # Default subsampling in torchaudio:
             self.time_reduction = _TimeReduction(time_reduction_stride)
@@ -34,7 +55,7 @@ class _ConformerEncoder(torch.nn.Module, _Transcriber):
         elif subsampling_type == "conv":
             # Default subsampling in espnet:
             # time_reduction_stride=4 is hard-wired in the following code
-            self.subsampling = Conv2dSubsampling(
+            self.input_linear = Conv2dSubsampling(
                 input_dim,
                 conformer_input_dim,
                 dropout_rate=0.1,
@@ -57,8 +78,13 @@ class _ConformerEncoder(torch.nn.Module, _Transcriber):
         self.layer_norm = torch.nn.LayerNorm(output_dim)
 
     def forward(self, input: torch.Tensor, lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        time_reduction_out, time_reduction_lengths = self.time_reduction(input, lengths)
-        input_linear_out = self.input_linear(time_reduction_out)
+        if self.subsampling_type == "splice":
+            time_reduction_out, time_reduction_lengths = self.time_reduction(input, lengths)
+            input_linear_out = self.input_linear(time_reduction_out)
+        elif self.subsampling_type == "conv":
+            mask = (~make_source_mask(lengths)[:, None, :])
+            input_linear_out, mask = self.input_linear(input, mask)
+            time_reduction_lengths = mask.squeeze(1).sum(1).int()
         x, lengths = self.conformer(input_linear_out, time_reduction_lengths)
         output_linear_out = self.output_linear(x)
         layer_norm_out = self.layer_norm(output_linear_out)

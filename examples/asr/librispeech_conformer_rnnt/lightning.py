@@ -127,6 +127,7 @@ def get_conformer_rnnt(config):
         lstm_layer_norm_epsilon=config["rnnt_config"]["lstm_layer_norm_epsilon"],
         lstm_dropout=config["rnnt_config"]["lstm_dropout"],
         joiner_activation=config["rnnt_config"]["joiner_activation"],
+        subsampling_type=config["rnnt_config"]["subsampling_type"],
     )
 
 
