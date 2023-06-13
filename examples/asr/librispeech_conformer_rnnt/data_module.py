@@ -117,6 +117,7 @@ class LibriSpeechDataModule(LightningDataModule):
         train_num_buckets=50,
         train_shuffle=True,
         num_workers=10,
+        full_libri=True,
     ):
         super().__init__()
         self.librispeech_path = librispeech_path
@@ -130,13 +131,17 @@ class LibriSpeechDataModule(LightningDataModule):
         self.train_num_buckets = train_num_buckets
         self.train_shuffle = train_shuffle
         self.num_workers = num_workers
+        self.full_libri = full_libri
 
     def train_dataloader(self):
-        datasets = [
-            self.librispeech_cls(self.librispeech_path, url="train-clean-360"),
-            self.librispeech_cls(self.librispeech_path, url="train-clean-100"),
-            self.librispeech_cls(self.librispeech_path, url="train-other-500"),
-        ]
+        if self.full_libri:
+            datasets = [
+                self.librispeech_cls(self.librispeech_path, url="train-clean-360"),
+                self.librispeech_cls(self.librispeech_path, url="train-clean-100"),
+                self.librispeech_cls(self.librispeech_path, url="train-other-500"),
+            ]
+        else:
+            datasets = [self.librispeech_cls(self.librispeech_path, url="train-clean-100"),]
 
         if not self.train_dataset_lengths:
             self.train_dataset_lengths = [get_sample_lengths(dataset) for dataset in datasets]

@@ -69,6 +69,7 @@ default_config = {
         "gpus": 8,
         "epochs": 200,
         "gradient_clip_val": 10.0,
+        "full_libri": True,
     },
     
     "optim_config": {

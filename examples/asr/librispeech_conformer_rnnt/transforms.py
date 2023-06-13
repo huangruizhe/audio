@@ -191,4 +191,5 @@ def get_data_module(librispeech_path, global_stats_path, sp_model_path, config):
         batch_size=config["optim_config"]["batch_size"],
         max_tokens=config["optim_config"]["max_tokens"],
         train_num_buckets=config["optim_config"]["train_num_buckets"],
+        full_libri=config["training_config"]["full_libri"],
     )
