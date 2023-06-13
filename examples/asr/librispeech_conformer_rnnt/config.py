@@ -2,6 +2,7 @@ from typing import Any
 import yaml
 import pathlib
 import logging
+import datetime
 
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
@@ -19,7 +20,7 @@ default_config = {
     "rnnt_config": {
         "input_dim": 80,
         "encoding_dim": 512,
-        "subsampling_type": "conv",
+        "subsampling_type": "splice",  # splice, conv
         "time_reduction_stride": 4,
         "conformer_input_dim": 512,
         "conformer_ffn_dim": 2048,
@@ -107,6 +108,7 @@ default_config = {
     # },
 
     "speed_perturbation": False,
+    "musan_noise": False,
 
     # # Espnet's:
     # "specaug_conf": {
@@ -126,16 +128,22 @@ default_config = {
     #     "step_max_tokens": 100,
     #     "beam_width": 20,  # espnet: 10  # https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/transducer/decode.yaml
     # },
+
+    "updated": False,
 }
 
 
 def update_missing_fields(d, d_ref):
+    updated_or_not = False
     for k, v in d_ref.items():
         if k not in d:
             d[k] = d_ref[k]
+            updated_or_not = True
         elif type(v) is dict:
-            update_missing_fields(d[k], d_ref[k])
-    return d
+            _dk, _updated_or_not = update_missing_fields(d[k], d_ref[k])
+            d[k] = _dk
+            updated_or_not = updated_or_not or _updated_or_not
+    return d, updated_or_not
 
 
 # https://python.land/data-processing/python-yaml
@@ -147,7 +155,8 @@ def load_config(config_file):
     with open(config_file, 'r') as fin:
         config = yaml.safe_load(fin)
     
-    update_missing_fields(config, default_config)
+    _, updated_or_not = update_missing_fields(config, default_config)
+    config["updated"] = updated_or_not
     return config
 
 
@@ -167,7 +176,14 @@ def my_stringify_dict(d):
 def save_config(config, config_file):
     _str_config = my_stringify_dict(config)
 
-    if not pathlib.Path(config_file).exists():
+    pp = pathlib.Path(config_file)
+    if not pp.exists() or config["updated"]:
+        if pp.exists():
+            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            new_path = pp.with_suffix(f".{timestamp}.yaml")
+            pp.rename(new_path)
+            logging.info(f"Existing config file has been updated. Previous one saved to: {new_path}")
+
         with open(config_file, 'w') as fout:
             yaml.dump(_str_config, fout)
     else:
