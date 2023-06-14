@@ -165,7 +165,7 @@ def my_stringify_dict(d):
     str_d = dict()
 
     for k, v in d.items():
-        if type(v) is pathlib.Path:
+        if isinstance(v, pathlib.Path): # type(v) is pathlib.Path:
             str_d[k] = str(v.absolute())
         elif type(v) is dict:
             str_d[k] = my_stringify_dict(v)

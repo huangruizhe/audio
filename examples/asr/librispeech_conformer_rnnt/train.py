@@ -47,6 +47,7 @@ def run_train(args, config):
         save_top_k=config["training_config"]["save_top_k"],
         save_weights_only=False,
         verbose=True,
+        every_n_epochs=10,
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
     callbacks = [
