@@ -197,8 +197,8 @@ class LibriSpeechDataModule(LightningDataModule):
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=None, num_workers=self.num_workers)
         return dataloader
 
-    def test_dataloader(self):
-        dataset = self.librispeech_cls(self.librispeech_path, url="test-other")
+    def test_dataloader(self, test_part="test-other"):
+        dataset = self.librispeech_cls(self.librispeech_path, url=test_part)
         dataset = TransformDataset(dataset, self.test_transform)
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=None)
         return dataloader

@@ -28,7 +28,7 @@ def run_eval(args, config):
 
     total_edit_distance = 0
     total_length = 0
-    dataloader = data_module.test_dataloader()
+    dataloader = data_module.test_dataloader(test_part=args.test_part)
     with torch.no_grad():
         for idx, (batch, sample) in enumerate(dataloader):
             actual = sample[0][2]
@@ -79,6 +79,12 @@ def cli_main():
         default=None,
         type=pathlib.Path,
         help="Path to config file.",
+    )
+    parser.add_argument(
+        "--test-part",
+        default="test-other",
+        type=str,
+        help="",
     )
     args = parser.parse_args()
 
