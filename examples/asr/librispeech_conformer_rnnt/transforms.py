@@ -20,10 +20,12 @@ _gain = pow(10, 0.05 * _decibel)
 _spectrogram_transform = torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_fft=400, n_mels=80, hop_length=160)
 _speed_perturb_transform = torchaudio.transforms.SpeedPerturbation(orig_freq=16000, factors=[0.9, 1.0, 1.1])
 
-musan_path = "/checkpoints/huangruizhe/datasets/musan/"
-subsets = ["music", "noise", "speech"]
-musan = Musan(musan_path, subsets)
-_additive_noise_transform = AddNoise(musan, snr=(10, 20), p=0.5)
+musan_path = "/checkpoints/huangruizhe/datasets/musan/"   # pytorch cluster
+# musan_path = "/private/home/huangruizhe/datasets/musan/"  # fair cluster
+# subsets = ["noise"]  # ["music", "noise", "speech"]
+# musan = Musan(musan_path, subsets)
+# _additive_noise_transform = AddNoise(musan, snr=(10, 20), p=0.5)
+_additive_noise_transform = None
 
 def _piecewise_linear_log(x):
     x = x * _gain
@@ -180,6 +182,12 @@ class TestTransform:
 
 
 def get_data_module(librispeech_path, global_stats_path, sp_model_path, config):
+    if config["musan_noise"]:
+        subsets = config["musan_noise"]["subsets"]
+        musan = Musan(musan_path, subsets)
+        global _additive_noise_transform
+        _additive_noise_transform = AddNoise(musan, snr=tuple(config["musan_noise"]["snr"]), p=config["musan_noise"]["p"])
+
     train_transform = TrainTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path, config=config)
     val_transform = ValTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path)
     test_transform = TestTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path)
