@@ -122,6 +122,11 @@ default_config = {
 
     "speed_perturbation": False,
     "musan_noise": False,
+    # "musan_noise": {
+    #     "subsets": ["noise"],
+    #     "snr": [10, 20],
+    #     "p": 0.5,
+    # },
 
     # # inference:
     # "inference_config": {
