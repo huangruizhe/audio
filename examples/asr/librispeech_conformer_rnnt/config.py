@@ -81,14 +81,14 @@ default_config = {
         "max_tokens": 1200,
         "train_num_buckets": 50,
         "reduction": "sum",
-        "weight_decay": 1e-6,
+        "weight_decay": 2e-6,
     },
 
     # Xiaohui's:
     "specaug_conf": {
         "new_spec_aug_api": False,
         "n_time_masks": 10,
-        "time_mask_param": 30,
+        "time_mask_param": 100,
         "p": 0.2,
         "n_freq_masks": 2,
         "freq_mask_param": 27,
@@ -108,13 +108,10 @@ default_config = {
     #     "zero_masking": True,
     # },
 
-    "speed_perturbation": False,
-    "musan_noise": False,
-
-    # # Espnet's:
+    # # Espnet's:  f30,2; t40, 2
     # "specaug_conf": {
     #     "new_spec_aug_api": False,
-    #     "n_time_masks": 0,
+    #     "n_time_masks": 2,
     #     "time_mask_param": 40,
     #     "p": 0.2,
     #     "n_freq_masks": 2,
@@ -122,6 +119,9 @@ default_config = {
     #     "iid_masks": True,
     #     "zero_masking": True,
     # },
+
+    "speed_perturbation": False,
+    "musan_noise": False,
 
     # # inference:
     # "inference_config": {
