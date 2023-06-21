@@ -146,6 +146,8 @@ def update_missing_fields(d, d_ref):
             d[k] = d_ref[k]
             updated_or_not = True
         elif type(v) is dict:
+            if type(d[k]) is bool:
+                continue
             _dk, _updated_or_not = update_missing_fields(d[k], d_ref[k])
             d[k] = _dk
             updated_or_not = updated_or_not or _updated_or_not
