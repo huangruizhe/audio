@@ -20,7 +20,7 @@ default_config = {
     "rnnt_config": {
         "input_dim": 80,
         "encoding_dim": 512,
-        "subsampling_type": "splice",  # splice, conv
+        "subsampling_type": "conv",  # splice, conv
         "time_reduction_stride": 4,
         "conformer_input_dim": 512,
         "conformer_ffn_dim": 2048,
@@ -120,13 +120,13 @@ default_config = {
     #     "zero_masking": True,
     # },
 
-    "speed_perturbation": False,
-    "musan_noise": False,
-    # "musan_noise": {
-    #     "subsets": ["noise"],
-    #     "snr": [10, 20],
-    #     "p": 0.5,
-    # },
+    "speed_perturbation": True,
+    # "musan_noise": False,
+    "musan_noise": {
+        "subsets": ["noise", "music"],  # "music", "speech"
+        "snr": [15, 30],
+        "p": 0.5,
+    },
 
     # # inference:
     # "inference_config": {
@@ -146,6 +146,8 @@ def update_missing_fields(d, d_ref):
             d[k] = d_ref[k]
             updated_or_not = True
         elif type(v) is dict:
+            if type(d[k]) is bool:
+                continue
             _dk, _updated_or_not = update_missing_fields(d[k], d_ref[k])
             d[k] = _dk
             updated_or_not = updated_or_not or _updated_or_not
