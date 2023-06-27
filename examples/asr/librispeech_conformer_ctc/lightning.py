@@ -93,11 +93,13 @@ class GreedyCTCDecoder(torch.nn.Module):
         Returns:
           List[str]: The resulting transcript
         """
+        # import pdb; pdb.set_trace()
         indices = torch.argmax(emission, dim=-1)  # [num_seq,]
+        # indices = indices.squeeze()
         indices = torch.unique_consecutive(indices, dim=-1)
         indices = [i for i in indices if i != self.blank]
         joined = "".join([self.labels[i.item()] for i in indices])
-        return joined.replace("|", " ").strip().split()
+        return joined.replace("▁", " ").strip().split()
 
 
 def conformer_ctc_customized():
@@ -126,7 +128,7 @@ def conformer_ctc_customized():
     return conformer_ctc_model(
         input_dim=80,
         encoding_dim=512,
-        time_reduction_stride=1,
+        time_reduction_stride=4,
         conformer_input_dim=512,
         conformer_ffn_dim=2048,
         conformer_num_layers=12,
@@ -170,30 +172,50 @@ class ConformerCTCModule(LightningModule):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=8e-4, betas=(0.9, 0.98), eps=1e-9)
         self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.96)
 
-        if inference_args:
-            # files = download_pretrained_files("librispeech-4-gram")
-            # self.files = files
-            # self.decoder = ctc_decoder(
-            #     lexicon=files.lexicon,
-            #     tokens=files.tokens,
-            #     lm=files.lm,
-            #     nbest=inference_args["nbest"],
-            #     beam_size=inference_args["beam_size"],
-            #     beam_size_token=inference_args["beam_size_token"],
-            #     beam_threshold=inference_args["beam_threshold"],
-            #     lm_weight=inference_args["lm_weight"],
-            #     word_score=inference_args["word_score"],
-            #     unk_score=inference_args["unk_score"],
-            #     sil_score=inference_args["sil_score"],
-            #     log_add=False,
-            # )
-
+        self.inference_args = inference_args
+        self.inference_type = inference_args["inference_type"]
+        del inference_args["inference_type"]
+        if self.inference_type == "greedy":
             tokens = {i: sp_model.id_to_piece(i) for i in range(sp_model.vocab_size())}
             greedy_decoder = GreedyCTCDecoder(
                 labels=tokens,
                 blank=self.blank_idx,
             )
             self.decoder = greedy_decoder
+        elif self.inference_type == "4gram":
+            # files = download_pretrained_files("librispeech-4-gram")
+            # import pdb; pdb.set_trace()
+            # self.files = files
+            # self.decoder = ctc_decoder(
+            #     lexicon=files.lexicon,
+            #     tokens=files.tokens,
+            #     lm=files.lm,
+            #     # nbest=inference_args["nbest"],
+            #     # beam_size=inference_args["beam_size"],
+            #     # beam_size_token=inference_args["beam_size_token"],
+            #     # beam_threshold=inference_args["beam_threshold"],
+            #     # lm_weight=inference_args["lm_weight"],
+            #     # word_score=inference_args["word_score"],
+            #     # unk_score=inference_args["unk_score"],
+            #     # sil_score=inference_args["sil_score"],
+            #     **inference_args,
+            #     log_add=False,
+            # )
+            self.decoder = ctc_decoder(
+                # lexicon=files.lexicon,
+                # tokens=files.tokens,
+                # lm=files.lm,
+                # nbest=inference_args["nbest"],
+                # beam_size=inference_args["beam_size"],
+                # beam_size_token=inference_args["beam_size_token"],
+                # beam_threshold=inference_args["beam_threshold"],
+                # lm_weight=inference_args["lm_weight"],
+                # word_score=inference_args["word_score"],
+                # unk_score=inference_args["unk_score"],
+                # sil_score=inference_args["sil_score"],
+                **inference_args,
+                log_add=False,
+            )
     
     def initialize_loss_func(self, topo_type="ctc", subsampling_factor=4):
         graph_compiler = BpeCtcTrainingGraphCompiler(
@@ -228,10 +250,15 @@ class ConformerCTCModule(LightningModule):
                 batch.features.to(self.device),
                 batch.feature_lengths.to(self.device),
             )
-        emission = output.cpu()
+        emission = output.cpu().squeeze()
+        # import pdb; pdb.set_trace()
         beam_search_result = self.decoder(emission)
-        # beam_search_transcript = " ".join(beam_search_result[0][0].words).strip()  # assuming batch_size=1
-        beam_search_transcript = " ".join(beam_search_result).strip()
+        if self.inference_type == "greedy":
+            beam_search_transcript = " ".join(beam_search_result).strip()
+            beam_search_transcript = beam_search_transcript.upper()
+        elif self.inference_type == "4gram":
+            beam_search_transcript = " ".join(beam_search_result[0][0].words).strip()  # assuming batch_size=1
+            
         return beam_search_transcript
 
     def training_step(self, batch: Batch, batch_idx):
