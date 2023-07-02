@@ -22,6 +22,20 @@ class MyFitStartCallback(Callback):
             subsampling_factor=pl_module.config["rnnt_config"]["time_reduction_stride"],
         )
 
+class MyTrainStartCallback(Callback):
+    def on_train_start(self, trainer, pl_module):
+        if pl_module.global_rank == 0:
+            logging.info("Training is starting ...")
+
+            print("----------------- Training Configuration -------------------")
+            print(pl_module.config)
+            print("------------------------------------------------------------")
+
+            config_file = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "train_config.yaml"
+            config_file = config_file.absolute()
+            logging.info(f"Saving config to: {config_file}")
+            save_config(pl_module.config, config_file)
+
 
 def run_train(args, config):
     seed_everything(1)
@@ -49,6 +63,7 @@ def run_train(args, config):
         train_checkpoint,
         lr_monitor,
         MyFitStartCallback(),
+        MyTrainStartCallback(),
     ]
     trainer = Trainer(
         default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),

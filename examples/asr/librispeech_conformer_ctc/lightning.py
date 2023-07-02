@@ -162,16 +162,6 @@ class ConformerCTCModule(LightningModule):
         # self.model = conformer_ctc_model_base()
         self.model = conformer_ctc_customized(config)
         
-        # Option 1:
-        # self.loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction="sum")
-
-        # Option 2:
-        # graph_compiler = BpeCtcTrainingGraphCompiler(
-        #     bpe_model_path="./spm_unigram_1023.model",
-        #     device=self.device,  # torch.device("cuda", self.global_rank),
-        #     topo_type="ctc",
-        # )
-        # self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=4)
         self.loss = None
         
         self.optimizer = torch.optim.Adam(
@@ -237,6 +227,10 @@ class ConformerCTCModule(LightningModule):
             )
     
     def initialize_loss_func(self, topo_type="ctc", subsampling_factor=4):
+        # Option 1:
+        # self.loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction="sum")
+
+        # Option 2:
         graph_compiler = BpeCtcTrainingGraphCompiler(
             bpe_model_path="./spm_unigram_1023.model",
             device=self.device,  # torch.device("cuda", self.global_rank),
