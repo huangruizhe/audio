@@ -9,20 +9,28 @@ from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, Ca
 from pytorch_lightning.strategies import DDPStrategy
 from transforms import get_data_module
 
+from config import load_config, update_config, save_config
+import logging
+
+logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
+
 
 class MyFitStartCallback(Callback):
     def on_fit_start(self, trainer, pl_module):
-        pl_module.initialize_loss_func(topo_type="hmm", subsampling_factor=1)
+        pl_module.initialize_loss_func(
+            topo_type=pl_module.config["topo_type"], 
+            subsampling_factor=pl_module.config["rnnt_config"]["time_reduction_stride"],
+        )
 
 
-def run_train(args):
+def run_train(args, config):
     seed_everything(1)
-    checkpoint_dir = args.exp_dir / "checkpoints"
+    checkpoint_dir = pathlib.Path(config["training_config"]["exp_dir"]) / "checkpoints"
     checkpoint = ModelCheckpoint(
         checkpoint_dir,
         monitor="Losses/val_loss",
         mode="min",
-        save_top_k=5,
+        save_top_k=config["training_config"]["save_top_k"],
         save_weights_only=False,
         verbose=True,
     )
@@ -30,9 +38,10 @@ def run_train(args):
         checkpoint_dir,
         monitor="Losses/train_loss",
         mode="min",
-        save_top_k=5,
+        # save_top_k=config["training_config"]["save_top_k"],
         save_weights_only=False,
         verbose=True,
+        every_n_epochs=10,
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
     callbacks = [
@@ -42,22 +51,23 @@ def run_train(args):
         MyFitStartCallback(),
     ]
     trainer = Trainer(
-        default_root_dir=args.exp_dir,
-        max_epochs=args.epochs,
-        num_nodes=args.nodes,
-        devices=args.gpus,
+        default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
+        max_epochs=config["training_config"]["epochs"],
+        num_nodes=config["training_config"]["nodes"],
+        devices=config["training_config"]["gpus"],
         accelerator="gpu",
         strategy=DDPStrategy(find_unused_parameters=False),
         callbacks=callbacks,
         reload_dataloaders_every_n_epochs=1,
-        gradient_clip_val=10.0,
-        accumulate_grad_batches=3,
+        gradient_clip_val=config["training_config"]["gradient_clip_val"],
+        # accumulate_grad_batches=3,
+        # limit_train_batches=10,
     )
 
     sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
-    model = ConformerCTCModule(sp_model)
-    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path))
-    trainer.fit(model, data_module, ckpt_path=args.checkpoint_path)
+    model = ConformerCTCModule(sp_model, config)
+    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path), config)
+    trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
 
 def cli_main():
@@ -110,8 +120,18 @@ def cli_main():
         type=int,
         help="Number of epochs to train for. (Default: 120)",
     )
+    parser.add_argument(
+        "--train-config",
+        default=None,
+        type=pathlib.Path,
+        help="Path to config file.",
+    )
     args = parser.parse_args()
-    run_train(args)
+
+    config = load_config(args.train_config)
+    config = update_config(config, args)
+
+    run_train(args, config)
 
 
 if __name__ == "__main__":

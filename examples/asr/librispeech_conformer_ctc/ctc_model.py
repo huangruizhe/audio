@@ -97,6 +97,7 @@ def conformer_ctc_model(
     conformer_depthwise_conv_kernel_size: int,
     conformer_dropout: float,
     num_symbols: int,
+    subsampling_type: str = "splice",
 ):
     r"""Builds Conformer-based CTC model.
 
@@ -127,6 +128,7 @@ def conformer_ctc_model(
         conformer_num_heads=conformer_num_heads,
         conformer_depthwise_conv_kernel_size=conformer_depthwise_conv_kernel_size,
         conformer_dropout=conformer_dropout,
+        subsampling_type=subsampling_type,
     )
     encoder_output_layer = nn.Sequential(
         nn.Dropout(p=conformer_dropout), nn.Linear(encoding_dim, num_symbols)

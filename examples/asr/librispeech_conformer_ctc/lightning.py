@@ -102,7 +102,8 @@ class GreedyCTCDecoder(torch.nn.Module):
         return joined.replace("▁", " ").strip().split()
 
 
-def conformer_ctc_customized():
+
+def conformer_ctc_customized(config):
     # Original
     # return conformer_rnnt_model(
     #     input_dim=80,
@@ -126,21 +127,22 @@ def conformer_ctc_customized():
 
     # xiaohui's
     return conformer_ctc_model(
-        input_dim=80,
-        encoding_dim=512,
-        time_reduction_stride=4,
-        conformer_input_dim=512,
-        conformer_ffn_dim=2048,
-        conformer_num_layers=12,
-        conformer_num_heads=8,
-        conformer_depthwise_conv_kernel_size=31,
-        conformer_dropout=0.1,
-        num_symbols=1024,
+        input_dim=config["rnnt_config"]["input_dim"],
+        encoding_dim=config["rnnt_config"]["encoding_dim"],
+        time_reduction_stride=config["rnnt_config"]["time_reduction_stride"],
+        conformer_input_dim=config["rnnt_config"]["conformer_input_dim"],
+        conformer_ffn_dim=config["rnnt_config"]["conformer_ffn_dim"],
+        conformer_num_layers=config["rnnt_config"]["conformer_num_layers"],
+        conformer_num_heads=config["rnnt_config"]["conformer_num_heads"],
+        conformer_depthwise_conv_kernel_size=config["rnnt_config"]["conformer_depthwise_conv_kernel_size"],
+        conformer_dropout=config["rnnt_config"]["conformer_dropout"],
+        num_symbols=config["rnnt_config"]["num_symbols"],
+        subsampling_type=config["rnnt_config"]["subsampling_type"],
     )
 
 
 class ConformerCTCModule(LightningModule):
-    def __init__(self, sp_model, inference_args=None):
+    def __init__(self, sp_model, config, inference_args=None):
         super().__init__()
 
         self.sp_model = sp_model
@@ -150,12 +152,15 @@ class ConformerCTCModule(LightningModule):
             f"vocabulary size {_expected_spm_vocab_size}, but the given SentencePiece model has a vocabulary size "
             f"of {spm_vocab_size}. Please provide a correctly configured SentencePiece model."
         )
+        assert spm_vocab_size == config["spm_vocab_size"]
         self.blank_idx = spm_vocab_size
+
+        self.config = config
 
         # ``conformer_rnnt_base`` hardcodes a specific Conformer RNN-T configuration.
         # For greater customizability, please refer to ``conformer_rnnt_model``.
         # self.model = conformer_ctc_model_base()
-        self.model = conformer_ctc_customized()
+        self.model = conformer_ctc_customized(config)
         
         # Option 1:
         # self.loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction="sum")
@@ -169,8 +174,22 @@ class ConformerCTCModule(LightningModule):
         # self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=4)
         self.loss = None
         
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=8e-4, betas=(0.9, 0.98), eps=1e-9)
-        self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.96)
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), 
+            lr=config["optim_config"]["lr"], 
+            betas=(0.9, 0.98), 
+            eps=1e-9, 
+            weight_decay=config["optim_config"]["weight_decay"]
+        )
+        self.warmup_lr_scheduler = WarmupLR(
+            self.optimizer, 
+            config["optim_config"]["warmup_steps"], 
+            config["optim_config"]["force_anneal_step"], 
+            config["optim_config"]["anneal_factor"]
+        )
+
+        if inference_args is None:
+            return
 
         self.inference_args = inference_args
         self.inference_type = inference_args["inference_type"]
@@ -244,19 +263,23 @@ class ConformerCTCModule(LightningModule):
             [{"scheduler": self.warmup_lr_scheduler, "interval": "epoch"}],
         )
 
-    def forward(self, batch: Batch):
+    def forward(self, batch: Batch, emission_only=False):
         with torch.inference_mode():
             output, src_lengths = self.model(
                 batch.features.to(self.device),
                 batch.feature_lengths.to(self.device),
             )
-        emission = output.cpu().squeeze()
-        # import pdb; pdb.set_trace()
-        beam_search_result = self.decoder(emission)
+        emission = output.cpu()
+        if emission_only:
+            return emission
+        # import pdb; pdb.set_trace()        
         if self.inference_type == "greedy":
+            emission = emission.squeeze()
+            beam_search_result = self.decoder(emission)
             beam_search_transcript = " ".join(beam_search_result).strip()
             beam_search_transcript = beam_search_transcript.upper()
         elif self.inference_type == "4gram":
+            beam_search_result = self.decoder(emission)
             beam_search_transcript = " ".join(beam_search_result[0][0].words).strip()  # assuming batch_size=1
             
         return beam_search_transcript

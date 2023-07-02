@@ -38,6 +38,8 @@ def run_eval(args):
     #     "lexicon": "/fsx/users/huangruizhe/icefall_align2/egs/librispeech/ASR/data/lang_bpe_torchaudio/lexicon.txt",
     #     "tokens": "/fsx/users/huangruizhe/icefall_align2/egs/librispeech/ASR/data/lang_bpe_torchaudio/tokens.txt",
     #     "lm": "/fsx/users/huangruizhe/icefall_align2/egs/librispeech/ASR/data/lang_bpe_torchaudio/kn.4.bin",
+    #     "sil_token": "q",
+    #     "blank_token": "q",
     # }
 
     model = ConformerCTCModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model, inference_args=inference_args).eval()
@@ -54,8 +56,8 @@ def run_eval(args):
             actual = sample[0][2]
             predicted = model(batch)
             total_edit_distance += compute_word_level_distance(actual, predicted)
-            # print(f"[{idx}][predicted]\t{predicted}")
-            # print(f"[{idx}][actual   ]\t{actual}")
+            print(f"[{idx}][predicted]\t{predicted}")
+            print(f"[{idx}][actual   ]\t{actual}")
             total_length += len(actual.split())
             if idx % 100 == 0:
                 logger.warning(f"Processed elem {idx}; WER: {total_edit_distance / total_length}")
