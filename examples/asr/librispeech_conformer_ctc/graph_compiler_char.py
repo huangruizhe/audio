@@ -30,6 +30,7 @@ class CharCtcTrainingGraphCompiler(object):
         bpe_model,
         device: Union[str, torch.device] = "cpu",
         topo_type = "ctc",
+        padding_value = 1.0,
     ) -> None:
         """
         Args:
@@ -64,6 +65,7 @@ class CharCtcTrainingGraphCompiler(object):
             self.topo = None
 
         self.topo_type = topo_type
+        self.padding_value = padding_value
 
     # This works!
     def compile_ctc(
@@ -213,6 +215,7 @@ class CharCtcTrainingGraphCompiler(object):
     
     def get_transcript_fsa(self, samples):
         targets = [self.sp.encode_keep_boundary(sample[2]) for sample in samples]
+        targets = [[[i + 1 for i in w if i != self.padding_value] for w in t] for t in targets]  # hard-coded for torchaudio
         transcript_fsa = []
         for target in targets:
             fsa = self._get_transcript_fsa(target)
@@ -265,6 +268,7 @@ class CharCtcTrainingGraphCompiler(object):
 
     def get_decoding_graph(self, samples):
         targets = [self.sp.encode_keep_boundary(sample[2]) for sample in samples]
+        targets = [[[i + 1 for i in w if i != self.padding_value] for w in t] for t in targets]  # hard-coded for torchaudio
         decoding_graphs = []
         for target in targets:
             fsa = self._get_decoding_graph(target)

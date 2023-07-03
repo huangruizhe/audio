@@ -25,6 +25,9 @@ class MaximumLikelihoodLoss(nn.Module):
     ):
         super().__init__()
         self.graph_compiler = graph_compiler
+        # The default padding value is 1.0 as in
+        # /fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/transforms.py
+        # Does the padding values matter?
         self.padding_value = padding_value
 
         self.subsampling_factor = subsampling_factor
