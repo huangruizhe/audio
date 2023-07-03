@@ -14,7 +14,8 @@ class config_dict(dict):
 
 default_config = {
     # model:
-    "spm_vocab_size": 1023,
+    # "spm_vocab_size": 1023,
+    "spm_vocab_size": 29,
 
     # Xiaohui's
     "rnnt_config": {
@@ -69,7 +70,7 @@ default_config = {
         "gpus": 8,
         "epochs": 200,
         "gradient_clip_val": 10.0,
-        "full_libri": True,
+        "full_libri": False,
     },
     
     "optim_config": {
@@ -138,6 +139,8 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
+    "model_unit": "char",
+    "k2_loss": False,
 }
 
 

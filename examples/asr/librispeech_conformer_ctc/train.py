@@ -2,6 +2,7 @@ import pathlib
 from argparse import ArgumentParser
 
 import sentencepiece as spm
+from tokenizer_char import CharTokenizer
 
 from lightning import ConformerCTCModule
 from pytorch_lightning import seed_everything, Trainer
@@ -18,8 +19,8 @@ logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 class MyFitStartCallback(Callback):
     def on_fit_start(self, trainer, pl_module):
         pl_module.initialize_loss_func(
-            topo_type=pl_module.config["topo_type"], 
-            subsampling_factor=pl_module.config["rnnt_config"]["time_reduction_stride"],
+            # topo_type=pl_module.config["topo_type"], 
+            # subsampling_factor=pl_module.config["rnnt_config"]["time_reduction_stride"],
         )
 
 class MyTrainStartCallback(Callback):
@@ -79,7 +80,10 @@ def run_train(args, config):
         # limit_train_batches=10,
     )
 
-    sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+    if config["model_unit"] == "bpe":
+       sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+    elif config["model_unit"] == "char":
+        sp_model = CharTokenizer()
     model = ConformerCTCModule(sp_model, config)
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])

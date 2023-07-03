@@ -12,14 +12,19 @@ from torchaudio.models.decoder import ctc_decoder, download_pretrained_files
 # from torchaudio.models import Conformer
 from ctc_model import conformer_ctc_model, conformer_ctc_model_base
 from loss import MaximumLikelihoodLoss
-from bpe_graph_compiler import BpeCtcTrainingGraphCompiler
+from graph_compiler_bpe import BpeCtcTrainingGraphCompiler
+from graph_compiler_char import CharCtcTrainingGraphCompiler
 
 
 logger = logging.getLogger()
 
-_expected_spm_vocab_size = 1023
+# _expected_spm_vocab_size = 1023
 
-Batch = namedtuple("Batch", ["features", "feature_lengths", "targets", "target_lengths"])
+Batch = namedtuple(
+    "Batch", 
+    ["features", "feature_lengths", "targets", "target_lengths", "samples"],
+    defaults=[None] * 5,
+)
 
 
 class WarmupLR(torch.optim.lr_scheduler._LRScheduler):
@@ -147,11 +152,11 @@ class ConformerCTCModule(LightningModule):
 
         self.sp_model = sp_model
         spm_vocab_size = self.sp_model.get_piece_size()
-        assert spm_vocab_size == _expected_spm_vocab_size, (
-            "The model returned by conformer_rnnt_base expects a SentencePiece model of "
-            f"vocabulary size {_expected_spm_vocab_size}, but the given SentencePiece model has a vocabulary size "
-            f"of {spm_vocab_size}. Please provide a correctly configured SentencePiece model."
-        )
+        # assert spm_vocab_size == _expected_spm_vocab_size, (
+        #     "The model returned by conformer_rnnt_base expects a SentencePiece model of "
+        #     f"vocabulary size {_expected_spm_vocab_size}, but the given SentencePiece model has a vocabulary size "
+        #     f"of {spm_vocab_size}. Please provide a correctly configured SentencePiece model."
+        # )
         assert spm_vocab_size == config["spm_vocab_size"]
         self.blank_idx = spm_vocab_size
 
@@ -226,17 +231,30 @@ class ConformerCTCModule(LightningModule):
                 log_add=False,
             )
     
-    def initialize_loss_func(self, topo_type="ctc", subsampling_factor=4):
-        # # Option 1:
-        # self.loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction="sum")
+    def initialize_loss_func(self, topo_type=None, subsampling_factor=None):
+        if topo_type is None:
+            topo_type = self.config["topo_type"]
+        if subsampling_factor is None:
+            subsampling_factor = self.config["rnnt_config"]["time_reduction_stride"]
 
+        # Option 1:
+        if not self.config["k2_loss"]:
+            self.loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction=self.config["optim_config"]["reduction"])
         # Option 2:
-        graph_compiler = BpeCtcTrainingGraphCompiler(
-            bpe_model_path="./spm_unigram_1023.model",
-            device=self.device,  # torch.device("cuda", self.global_rank),
-            topo_type=topo_type,
-        )
-        self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
+        elif self.config["model_unit"] == "bpe":
+            graph_compiler = BpeCtcTrainingGraphCompiler(
+                bpe_model_path="./spm_unigram_1023.model",
+                device=self.device,  # torch.device("cuda", self.global_rank),
+                topo_type=topo_type,
+            )
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
+        elif self.config["model_unit"] == "char":
+            graph_compiler = CharCtcTrainingGraphCompiler(
+                bpe_model=self.sp_model,
+                device=self.device,  # torch.device("cuda", self.global_rank),
+                topo_type=topo_type,
+            )
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
 
     def _step(self, batch, _, step_type):
         if batch is None:
@@ -246,7 +264,10 @@ class ConformerCTCModule(LightningModule):
             batch.features,
             batch.feature_lengths,
         )
-        loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
+        if type(self.loss) is MaximumLikelihoodLoss:
+            loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+        else:
+            loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
         self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True)
 
         return loss

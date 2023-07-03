@@ -3,7 +3,8 @@ import k2
 import torch
 from torch import Tensor, nn
 
-from bpe_graph_compiler import BpeCtcTrainingGraphCompiler
+from graph_compiler_bpe import BpeCtcTrainingGraphCompiler
+from graph_compiler_char import CharCtcTrainingGraphCompiler
 
 
 class MaximumLikelihoodLoss(nn.Module):
@@ -58,17 +59,24 @@ class MaximumLikelihoodLoss(nn.Module):
 
         indices = torch.argsort(supervision_segments[:, 2], descending=True)
         supervision_segments = supervision_segments[indices]
+        # import pdb; pdb.set_trace()
 
         res = targets[indices].tolist()
         res = [[i + 1 for i in l if i != self.padding_value] for l in res]  # hard-coded for torchaudio
 
-        return supervision_segments, res
+        return supervision_segments, res, indices
 
-    def forward(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor) -> Tensor:
-        supervision_segments, texts = self.encode_supervisions(targets, input_lengths)
+    def forward(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None) -> Tensor:
+        supervision_segments, texts, indices = self.encode_supervisions(targets, input_lengths)
         token_ids = texts
         
-        decoding_graph = self.graph_compiler.compile(token_ids)
+        if type(self.graph_compiler) is BpeCtcTrainingGraphCompiler:
+            decoding_graph = self.graph_compiler.compile(token_ids)
+        elif type(self.graph_compiler) is CharCtcTrainingGraphCompiler:
+            _samples = [samples[i] for i in indices.tolist()]
+            decoding_graph = self.graph_compiler.compile(token_ids, _samples)
+        else:
+            raise NotImplementedError
 
         log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
         log_probs = torch.roll(log_probs, 1, -1)  # Now blank symbol has the index of 0

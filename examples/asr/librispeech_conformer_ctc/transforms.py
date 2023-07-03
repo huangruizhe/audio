@@ -156,7 +156,7 @@ class TrainTransform:
         )
 
         targets, target_lengths = _extract_labels(self.sp_model, samples)
-        return Batch(features, feature_lengths, targets, target_lengths)
+        return Batch(features, feature_lengths, targets, target_lengths, samples)
 
 
 class ValTransform:
@@ -170,7 +170,7 @@ class ValTransform:
     def __call__(self, samples: List):
         features, feature_lengths = _extract_features(self.valid_data_pipeline, samples)
         targets, target_lengths = _extract_labels(self.sp_model, samples)
-        return Batch(features, feature_lengths, targets, target_lengths)
+        return Batch(features, feature_lengths, targets, target_lengths, samples)
 
 
 class TestTransform:
