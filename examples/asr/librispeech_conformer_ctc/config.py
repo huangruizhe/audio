@@ -20,7 +20,7 @@ default_config = {
     "rnnt_config": {
         "input_dim": 80,
         "encoding_dim": 512,
-        "subsampling_type": "conv",  # splice, conv
+        "subsampling_type": "splice",  # splice, conv
         "time_reduction_stride": 4,
         "conformer_input_dim": 512,
         "conformer_ffn_dim": 2048,
@@ -78,17 +78,17 @@ default_config = {
         "anneal_factor": 0.96,
         "lr": 8e-4,
         "batch_size": None,
-        "max_tokens": 1200,
-        "train_num_buckets": 50,
+        "max_tokens": 1500,
+        "train_num_buckets": 1,
         "reduction": "sum",
-        "weight_decay": 2e-6,
+        "weight_decay": 0,
     },
 
     # Xiaohui's:
     "specaug_conf": {
-        "new_spec_aug_api": False,
+        "new_spec_aug_api": True,
         "n_time_masks": 10,
-        "time_mask_param": 100,
+        "time_mask_param": 30,
         "p": 0.2,
         "n_freq_masks": 2,
         "freq_mask_param": 27,
@@ -120,13 +120,13 @@ default_config = {
     #     "zero_masking": True,
     # },
 
-    "speed_perturbation": True,
-    # "musan_noise": False,
-    "musan_noise": {
-        "subsets": ["noise", "music"],  # "music", "speech"
-        "snr": [15, 30],
-        "p": 0.5,
-    },
+    "speed_perturbation": False,
+    "musan_noise": False,
+    # "musan_noise": {
+    #     "subsets": ["noise", "music"],  # "music", "speech"
+    #     "snr": [15, 30],
+    #     "p": 0.5,
+    # },
 
     # # inference:
     # "inference_config": {

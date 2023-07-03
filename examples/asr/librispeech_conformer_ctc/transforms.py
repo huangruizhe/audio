@@ -99,8 +99,8 @@ def _extract_features(data_pipeline, samples: List, speed_perturbation=False, mu
 
 
 class TrainTransform:
-    def __init__(self, global_stats_path: str, sp_model_path: str, config: dict):
-        self.sp_model = spm.SentencePieceProcessor(model_file=sp_model_path)
+    def __init__(self, global_stats_path: str, sp_model, config: dict):
+        self.sp_model = sp_model
 
         self.config = config
         if config["specaug_conf"]["new_spec_aug_api"]:
@@ -160,8 +160,8 @@ class TrainTransform:
 
 
 class ValTransform:
-    def __init__(self, global_stats_path: str, sp_model_path: str):
-        self.sp_model = spm.SentencePieceProcessor(model_file=sp_model_path)
+    def __init__(self, global_stats_path: str, sp_model):
+        self.sp_model = sp_model
         self.valid_data_pipeline = torch.nn.Sequential(
             FunctionalModule(_piecewise_linear_log),
             GlobalStatsNormalization(global_stats_path),
@@ -174,23 +174,23 @@ class ValTransform:
 
 
 class TestTransform:
-    def __init__(self, global_stats_path: str, sp_model_path: str):
-        self.val_transforms = ValTransform(global_stats_path, sp_model_path)
+    def __init__(self, global_stats_path: str, sp_model):
+        self.val_transforms = ValTransform(global_stats_path, sp_model)
 
     def __call__(self, sample):
         return self.val_transforms([sample]), [sample]
 
 
-def get_data_module(librispeech_path, global_stats_path, sp_model_path, config):
+def get_data_module(librispeech_path, global_stats_path, sp_model, config):
     if config["musan_noise"]:
         subsets = config["musan_noise"]["subsets"]
         musan = Musan(musan_path, subsets)
         global _additive_noise_transform
         _additive_noise_transform = AddNoise(musan, snr=tuple(config["musan_noise"]["snr"]), p=config["musan_noise"]["p"])
 
-    train_transform = TrainTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path, config=config)
-    val_transform = ValTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path)
-    test_transform = TestTransform(global_stats_path=global_stats_path, sp_model_path=sp_model_path)
+    train_transform = TrainTransform(global_stats_path=global_stats_path, sp_model=sp_model, config=config)
+    val_transform = ValTransform(global_stats_path=global_stats_path, sp_model=sp_model)
+    test_transform = TestTransform(global_stats_path=global_stats_path, sp_model=sp_model)
     return LibriSpeechDataModule(
         librispeech_path=librispeech_path,
         train_transform=train_transform,

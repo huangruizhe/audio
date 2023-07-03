@@ -227,7 +227,7 @@ class ConformerCTCModule(LightningModule):
             )
     
     def initialize_loss_func(self, topo_type="ctc", subsampling_factor=4):
-        # Option 1:
+        # # Option 1:
         # self.loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction="sum")
 
         # Option 2:

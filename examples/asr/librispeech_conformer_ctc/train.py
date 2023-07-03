@@ -81,7 +81,7 @@ def run_train(args, config):
 
     sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
     model = ConformerCTCModule(sp_model, config)
-    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path), config)
+    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
 
