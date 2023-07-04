@@ -80,6 +80,7 @@ default_config = {
         "lr": 8e-4,
         "batch_size": None,
         "max_tokens": 1500,
+        # "max_tokens": 550,  # for stride=1, and set `accumulate_grad_batches=3` in train.py
         "train_num_buckets": 1,
         "reduction": "sum",
         "weight_decay": 0,

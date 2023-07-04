@@ -65,7 +65,7 @@ class MaximumLikelihoodLoss(nn.Module):
         # import pdb; pdb.set_trace()
 
         res = targets[indices].tolist()
-        res = [[i + 1 for i in l if i != self.padding_value] for l in res]  # hard-coded for torchaudio
+        res = [[i + 1 for i in l] for l in res]  # hard-coded for torchaudio
 
         return supervision_segments, res, indices
 
