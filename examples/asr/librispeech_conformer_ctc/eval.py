@@ -13,6 +13,7 @@ from transforms import get_data_module
 from config import load_config, update_config, save_config
 import logging
 from tokenizer_char import CharTokenizer
+import werpy
 
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
@@ -61,15 +62,34 @@ def run_eval(args, config):
     dataloader = data_module.test_dataloader()
     with torch.no_grad():
         for idx, (batch, sample) in enumerate(dataloader):
-            actual = sample[0][2]
+            # WER:
+            # actual = sample[0][2]
+            # predicted = model(batch)
+            # total_edit_distance += compute_word_level_distance(actual, predicted)
+            # print(f"[{idx}][predicted]\t{predicted}")
+            # print(f"[{idx}][actual   ]\t{actual}")
+
+            # CER:
+            actual = " ".join(list(sample[0][2].replace(" ", "")))
             predicted = model(batch)
-            total_edit_distance += compute_word_level_distance(actual, predicted)
-            print(f"[{idx}][predicted]\t{predicted}")
-            print(f"[{idx}][actual   ]\t{actual}")
+            predicted = " ".join(list(predicted.replace(" ", "").replace("<B>", "")))
+            # total_edit_distance += compute_word_level_distance(actual, predicted)
+            total_edit_distance += werpy.summary(actual, predicted).iloc[:, :-3]
+            # print(f"[{idx}][predicted]\t{predicted}")
+            # print(f"[{idx}][actual   ]\t{actual}")
+
             total_length += len(actual.split())
             if idx % 100 == 0:
-                logger.warning(f"Processed elem {idx}; WER: {total_edit_distance / total_length}")
-    logger.warning(f"Final WER: {total_edit_distance / total_length}")
+                if type(total_edit_distance) is int:
+                    logger.warning(f"Processed elem {idx}; WER: {total_edit_distance / total_length}")
+                else:
+                    logger.warning(f"Processed elem {idx}; WER: {total_edit_distance.iloc[0]['ld'] / total_edit_distance.iloc[0]['m']}")
+
+    if type(total_edit_distance) is int:
+        logger.warning(f"Final WER: {total_edit_distance / total_length}")
+    else:
+        total_edit_distance.at[0, 'wer'] = total_edit_distance.iloc[0]['ld'] / total_edit_distance.iloc[0]['m']
+        logger.warning(f"Processed elem {idx}; WER: \n{total_edit_distance}")
 
 
 def cli_main():
