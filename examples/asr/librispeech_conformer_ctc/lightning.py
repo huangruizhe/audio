@@ -191,6 +191,8 @@ class ConformerCTCModule(LightningModule):
         del inference_args["inference_type"]
         if self.inference_type == "greedy":
             tokens = {i: sp_model.id_to_piece(i) for i in range(sp_model.vocab_size())}
+            if 1023 not in tokens:
+                tokens[1023] = "<b>"
             greedy_decoder = GreedyCTCDecoder(
                 labels=tokens,
                 blank=self.blank_idx,
@@ -268,7 +270,8 @@ class ConformerCTCModule(LightningModule):
             loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
         else:
             loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
-        self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True)
+        # print(f"Losses/{step_type}_loss: {loss}")
+        self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True, batch_size=batch.features.size(0))
 
         return loss
 
@@ -331,7 +334,7 @@ class ConformerCTCModule(LightningModule):
             logger.info(f"[{self.global_rank}] batch {batch_idx} is bad")
         batch_size = batch.features.size(0)
         batch_sizes = self.all_gather(batch_size)
-        self.log("Gathered batch size", batch_sizes.sum(), on_step=True, on_epoch=True)
+        self.log("Gathered batch size", batch_sizes.sum(), on_step=True, on_epoch=True, batch_size=batch_size)
         loss *= batch_sizes.size(0) / batch_sizes.sum()  # world size / batch size
         return loss
 

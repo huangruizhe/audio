@@ -10,6 +10,11 @@ import torchaudio
 from lightning import ConformerCTCModule
 from transforms import get_data_module
 
+from config import load_config, update_config, save_config
+import logging
+from tokenizer_char import CharTokenizer
+
+logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
 logger = logging.getLogger()
 
@@ -18,8 +23,11 @@ def compute_word_level_distance(seq1, seq2):
     return torchaudio.functional.edit_distance(seq1.lower().split(), seq2.lower().split())
 
 
-def run_eval(args):
-    sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+def run_eval(args, config):
+    if config["model_unit"] == "bpe":
+       sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+    elif config["model_unit"] == "char":
+        sp_model = CharTokenizer()
 
     # https://pytorch.org/audio/main/generated/torchaudio.models.decoder.ctc_decoder.html
     inference_args = {
@@ -42,8 +50,8 @@ def run_eval(args):
     #     "blank_token": "q",
     # }
 
-    model = ConformerCTCModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model, inference_args=inference_args).eval()
-    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), str(args.sp_model_path))
+    model = ConformerCTCModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model, inference_args=inference_args, config=config).eval()
+    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
 
     if args.use_cuda:
         model = model.to(device="cuda")
@@ -96,8 +104,17 @@ def cli_main():
         default=False,
         help="Run using CUDA.",
     )
+    parser.add_argument(
+        "--train-config",
+        default=None,
+        type=pathlib.Path,
+        help="Path to config file.",
+    )
     args = parser.parse_args()
-    run_eval(args)
+
+    config = load_config(args.train_config)
+
+    run_eval(args, config)
 
 
 if __name__ == "__main__":

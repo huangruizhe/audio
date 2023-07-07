@@ -42,6 +42,13 @@ class CharTokenizer:
                 ids.append(self.blank_id)
             token_ids.extend(ids)
         
+        if out_type == int:
+            pass
+        elif out_type == str:
+            token_ids = [self.id2char[t] for t in token_ids]
+        else:
+            raise NotImplementedError
+
         return token_ids
 
     def encode_keep_boundary(self, sentence, out_type: type = int) -> List:

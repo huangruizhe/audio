@@ -52,10 +52,6 @@ class CharCtcTrainingGraphCompiler(object):
         # self.word_table = k2.SymbolTable.from_file(lang_dir / "words.txt")
         self.device = device
 
-        self.start_tokens = {token_id for token_id in range(sp.vocab_size()) if sp.id_to_piece(token_id).startswith("▁")}
-        self.remove_intra_word_blk_flag = True
-        # print(f"self.remove_intra_word_blk_flag={self.remove_intra_word_blk_flag}")
-
         if topo_type == "hmm":
             self.max_token_id = sp.vocab_size() + 1  # hard-coded for torch audio
             self.topo = CharCtcTrainingGraphCompiler.hmm_topo(self.max_token_id, device, sil_id=0)
@@ -223,6 +219,8 @@ class CharCtcTrainingGraphCompiler(object):
         return transcript_fsa
 
     def _get_decoding_graph(self, target, blk_id=0):
+        # 1) Only optional silence is allowed between words
+
         start_state = 0
         next_available_state = 1
         arcs = []
@@ -232,21 +230,21 @@ class CharCtcTrainingGraphCompiler(object):
         next_available_state += 1
         next_state = next_available_state
         next_available_state += 1
-        arcs.append([prev_state, blk_state, blk_id, 0])
-        arcs.append([blk_state, blk_state, blk_id, 0])
+        arcs.append([prev_state, blk_state, blk_id, blk_id, 0])
+        arcs.append([blk_state, blk_state, blk_id, blk_id, 0])
         for word in target:
             for i, token in enumerate(word):
                 if i == 0:  # The first token of a word
-                    arcs.append([blk_state, next_state, token, 0])
-                arcs.append([prev_state, next_state, token, 0])
-                arcs.append([next_state, next_state, token, 0])
+                    arcs.append([blk_state, next_state, token, token, 0])
+                arcs.append([prev_state, next_state, token, token, 0])
+                arcs.append([next_state, next_state, token, token, 0])
                 prev_state = next_state
                 next_state = next_available_state
                 next_available_state += 1
             blk_state = next_available_state
             next_available_state += 1
-            arcs.append([prev_state, blk_state, blk_id, 0])
-            arcs.append([blk_state, blk_state, blk_id, 0])
+            arcs.append([prev_state, blk_state, blk_id, blk_id, 0])
+            arcs.append([blk_state, blk_state, blk_id, blk_id, 0])
         end_state = next_available_state
         arcs.append([blk_state, end_state, -1, 0])
         arcs.append([prev_state, end_state, -1, 0])
@@ -257,7 +255,7 @@ class CharCtcTrainingGraphCompiler(object):
         arcs = [" ".join(arc) for arc in arcs]
         arcs = "\n".join(arcs)
 
-        fsa = k2.Fsa.from_str(arcs)
+        fsa = k2.Fsa.from_str(arcs, acceptor=False)
         fsa = k2.arc_sort(fsa)
         if self.device is not None:
             fsa = fsa.to(self.device)

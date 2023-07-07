@@ -36,7 +36,7 @@ class MaximumLikelihoodLoss(nn.Module):
         self.use_double_scores = use_double_scores
 
     def encode_supervisions(
-        self, targets, input_lengths
+        self, targets, target_lengths, input_lengths
     ) -> Tuple[torch.Tensor, Union[List[str], List[List[int]]]]:
         """
         Encodes Lhotse's ``batch["supervisions"]`` dict into
@@ -65,13 +65,17 @@ class MaximumLikelihoodLoss(nn.Module):
         # import pdb; pdb.set_trace()
 
         res = targets[indices].tolist()
-        res = [[i + 1 for i in l] for l in res]  # hard-coded for torchaudio
+        res_lengths = target_lengths[indices].tolist()
+        res = [[i + 1 for i in l[:l_len]] for l, l_len in zip(res, res_lengths)]  # hard-coded for torchaudio
 
         return supervision_segments, res, indices
 
     def forward(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None) -> Tensor:
-        supervision_segments, texts, indices = self.encode_supervisions(targets, input_lengths)
+        # Be careful: the targets here are already padded! We need to remove paddings from it
+        supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, input_lengths)
         token_ids = texts
+
+        # import pdb; pdb.set_trace()
         
         if type(self.graph_compiler) is BpeCtcTrainingGraphCompiler:
             decoding_graph = self.graph_compiler.compile(token_ids)

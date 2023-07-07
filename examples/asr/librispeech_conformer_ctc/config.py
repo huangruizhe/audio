@@ -21,7 +21,7 @@ default_config = {
     "rnnt_config": {
         "input_dim": 80,
         "encoding_dim": 512,
-        "subsampling_type": "splice",  # splice, conv
+        "subsampling_type": "conv",  # splice, conv
         "time_reduction_stride": 4,
         "conformer_input_dim": 512,
         "conformer_ffn_dim": 2048,
@@ -81,16 +81,16 @@ default_config = {
         "batch_size": None,
         "max_tokens": 1500,
         # "max_tokens": 550,  # for stride=1, and set `accumulate_grad_batches=3` in train.py
-        "train_num_buckets": 1,
+        "train_num_buckets": 50,
         "reduction": "sum",
-        "weight_decay": 0,
+        "weight_decay": 2e-6,
     },
 
     # Xiaohui's:
     "specaug_conf": {
-        "new_spec_aug_api": True,
+        "new_spec_aug_api": False,
         "n_time_masks": 10,
-        "time_mask_param": 30,
+        "time_mask_param": 100,
         "p": 0.2,
         "n_freq_masks": 2,
         "freq_mask_param": 27,
@@ -122,13 +122,13 @@ default_config = {
     #     "zero_masking": True,
     # },
 
-    "speed_perturbation": False,
-    "musan_noise": False,
-    # "musan_noise": {
-    #     "subsets": ["noise", "music"],  # "music", "speech"
-    #     "snr": [15, 30],
-    #     "p": 0.5,
-    # },
+    "speed_perturbation": True,
+    # "musan_noise": False,
+    "musan_noise": {
+        "subsets": ["noise", "music"],  # "music", "speech"
+        "snr": [15, 30],
+        "p": 0.5,
+    },
 
     # # inference:
     # "inference_config": {
@@ -139,7 +139,7 @@ default_config = {
 
     "updated": False,
 
-    "topo_type": "hmm",
+    "topo_type": "ctc",
     "model_unit": "char",
     "k2_loss": True,
 }
@@ -160,6 +160,11 @@ def update_missing_fields(d, d_ref):
     return d, updated_or_not
 
 
+def sanity_check(config):
+    # assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"]
+    pass
+
+
 # https://python.land/data-processing/python-yaml
 def load_config(config_file):
     if config_file is None or not pathlib.Path(config_file).exists():
@@ -171,6 +176,7 @@ def load_config(config_file):
     
     _, updated_or_not = update_missing_fields(config, default_config)
     config["updated"] = updated_or_not
+    sanity_check(config)
     return config
 
 
