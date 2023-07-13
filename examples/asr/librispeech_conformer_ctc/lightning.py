@@ -10,7 +10,7 @@ from pytorch_lightning import LightningModule
 from torchaudio.models import Hypothesis, RNNTBeamSearch
 from torchaudio.models.decoder import ctc_decoder, download_pretrained_files
 # from torchaudio.models import Conformer
-from ctc_model import conformer_ctc_model, conformer_ctc_model_base
+from ctc_model import conformer_ctc_model, conformer_ctc_model_base, tdnn_blstm_ctc_model, tdnn_blstm_ctc_model_base
 from loss import MaximumLikelihoodLoss
 from graph_compiler_bpe import BpeCtcTrainingGraphCompiler
 from graph_compiler_char import CharCtcTrainingGraphCompiler
@@ -146,6 +146,16 @@ def conformer_ctc_customized(config):
     )
 
 
+def tdnn_blstm_ctc_customized(config):
+    return tdnn_blstm_ctc_model(
+        input_dim=config["tdnn_blstm_config"]["input_dim"],
+        num_symbols=config["tdnn_blstm_config"]["num_symbols"],
+        hidden_dim=config["tdnn_blstm_config"]["hidden_dim"],
+        drop_out=config["tdnn_blstm_config"]["drop_out"],
+        tdnn_blstm_spec=config["tdnn_blstm_config"]["tdnn_blstm_spec"],
+    )
+
+
 class ConformerCTCModule(LightningModule):
     def __init__(self, sp_model, config, inference_args=None):
         super().__init__()
@@ -165,8 +175,11 @@ class ConformerCTCModule(LightningModule):
         # ``conformer_rnnt_base`` hardcodes a specific Conformer RNN-T configuration.
         # For greater customizability, please refer to ``conformer_rnnt_model``.
         # self.model = conformer_ctc_model_base()
-        self.model = conformer_ctc_customized(config)
-        
+        if "rnnt_config" in config and config["rnnt_config"] is not None:
+            self.model = conformer_ctc_customized(config)
+        elif "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
+            self.model = tdnn_blstm_ctc_customized(config)
+
         self.loss = None
         
         self.optimizer = torch.optim.Adam(
@@ -237,7 +250,7 @@ class ConformerCTCModule(LightningModule):
         if topo_type is None:
             topo_type = self.config["topo_type"]
         if subsampling_factor is None:
-            subsampling_factor = self.config["rnnt_config"]["time_reduction_stride"]
+            subsampling_factor = self.config["subsampling_factor"]
 
         # Option 1:
         if not self.config["k2_loss"]:
@@ -245,13 +258,20 @@ class ConformerCTCModule(LightningModule):
         # Option 2:
         elif self.config["model_unit"] == "bpe":
             graph_compiler = BpeCtcTrainingGraphCompiler(
-                bpe_model_path="./spm_unigram_1023.model",
+                bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),
                 topo_type=topo_type,
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
         elif self.config["model_unit"] == "char":
             graph_compiler = CharCtcTrainingGraphCompiler(
+                bpe_model=self.sp_model,
+                device=self.device,  # torch.device("cuda", self.global_rank),
+                topo_type=topo_type,
+            )
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
+        elif self.config["model_unit"] == "char_boundary":
+            graph_compiler = BpeCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),
                 topo_type=topo_type,

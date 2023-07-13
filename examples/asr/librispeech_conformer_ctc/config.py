@@ -15,29 +15,30 @@ class config_dict(dict):
 default_config = {
     # model:
     # "spm_vocab_size": 1023,
-    "spm_vocab_size": 29,
+    # "spm_vocab_size": 29,
+    "spm_vocab_size": 55,
 
-    # Xiaohui's
-    "rnnt_config": {
-        "input_dim": 80,
-        "encoding_dim": 512,
-        "subsampling_type": "conv",  # splice, conv
-        "time_reduction_stride": 4,
-        "conformer_input_dim": 512,
-        "conformer_ffn_dim": 2048,
-        "conformer_num_layers": 12,
-        "conformer_num_heads": 8,
-        "conformer_depthwise_conv_kernel_size": 31,
-        "conformer_dropout": 0.1,
-        "num_symbols": 1024,
-        "symbol_embedding_dim": 1024,
-        "num_lstm_layers": 2,
-        "lstm_hidden_dim": 512,
-        "lstm_layer_norm": True,
-        "lstm_layer_norm_epsilon": 1e-5,
-        "lstm_dropout": 0.3,
-        "joiner_activation": "tanh",
-    },
+    # # Xiaohui's
+    # "rnnt_config": {
+    #     "input_dim": 80,
+    #     "encoding_dim": 512,
+    #     "subsampling_type": "conv",  # splice, conv
+    #     "time_reduction_stride": 4,
+    #     "conformer_input_dim": 512,
+    #     "conformer_ffn_dim": 2048,
+    #     "conformer_num_layers": 12,
+    #     "conformer_num_heads": 8,
+    #     "conformer_depthwise_conv_kernel_size": 31,
+    #     "conformer_dropout": 0.1,
+    #     "num_symbols": 1024,
+    #     "symbol_embedding_dim": 1024,
+    #     "num_lstm_layers": 2,
+    #     "lstm_hidden_dim": 512,
+    #     "lstm_layer_norm": True,
+    #     "lstm_layer_norm_epsilon": 1e-5,
+    #     "lstm_dropout": 0.3,
+    #     "joiner_activation": "tanh",
+    # },
 
     # # Default
     # "rnnt_config": {
@@ -59,6 +60,26 @@ default_config = {
     #     "lstm_dropout": 0.3,
     #     "joiner_activation": "tanh",
     # },
+
+    # "tdnn_blstm_config": None,
+    "tdnn_blstm_config": {
+        "input_dim": 80,
+        "num_symbols": 55,
+        "hidden_dim": 640,
+        "drop_out": 0.1,
+        "tdnn_blstm_spec": [
+            ["tdnn", 3, 2],
+            ["tdnn", 3, 2],
+            ["blstm"],
+            ["tdnn", 3, 1],
+            ["blstm"],
+            # ["blstm"],
+            # ["blstm"],
+            # ["blstm"],
+        ]
+    },
+
+    "subsampling_factor": 4,
 
     # training:
     "training_config": {
@@ -89,7 +110,7 @@ default_config = {
     # Xiaohui's:
     "specaug_conf": {
         "new_spec_aug_api": False,
-        "n_time_masks": 10,
+        "n_time_masks": 2,
         "time_mask_param": 100,
         "p": 0.2,
         "n_freq_masks": 2,
@@ -122,13 +143,13 @@ default_config = {
     #     "zero_masking": True,
     # },
 
-    "speed_perturbation": True,
-    # "musan_noise": False,
-    "musan_noise": {
-        "subsets": ["noise", "music"],  # "music", "speech"
-        "snr": [15, 30],
-        "p": 0.5,
-    },
+    "speed_perturbation": False,
+    "musan_noise": False,
+    # "musan_noise": {
+    #     "subsets": ["noise", "music"],  # "music", "speech"
+    #     "snr": [15, 30],
+    #     "p": 0.5,
+    # },
 
     # # inference:
     # "inference_config": {
@@ -140,7 +161,7 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
-    "model_unit": "char",
+    "model_unit": "char_boundary",
     "k2_loss": True,
 }
 
@@ -161,14 +182,24 @@ def update_missing_fields(d, d_ref):
 
 
 def sanity_check(config):
-    # assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"]
-    pass
+    if "rnnt_config" in config and config["rnnt_config"] is not None:
+        assert config["subsampling_factor"] == config["rnnt_config"]["time_reduction_stride"]
+        assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"]
+
+    if "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
+        subsampling_factor = 1
+        for x in config["tdnn_blstm_config"]["tdnn_blstm_spec"]:
+            if len(x) > 1:
+                subsampling_factor *= x[2]
+        assert config["subsampling_factor"] == subsampling_factor
+        assert config["spm_vocab_size"] == config["tdnn_blstm_config"]["num_symbols"]
 
 
 # https://python.land/data-processing/python-yaml
 def load_config(config_file):
     if config_file is None or not pathlib.Path(config_file).exists():
         logging.info(f"No config_file found. Using default config.")
+        sanity_check(default_config)
         return default_config
     
     with open(config_file, 'r') as fin:

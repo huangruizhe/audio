@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 
 import sentencepiece as spm
 from tokenizer_char import CharTokenizer
+from tokenizer_char_boundary import CharTokenizerBoundary
 
 from lightning import ConformerCTCModule
 from pytorch_lightning import seed_everything, Trainer
@@ -81,10 +82,13 @@ def run_train(args, config):
     )
 
     if config["model_unit"] == "bpe":
-       sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+        sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
     elif config["model_unit"] == "char":
         sp_model = CharTokenizer()
+    elif config["model_unit"] == "char_boundary":
+        sp_model = CharTokenizerBoundary()
     model = ConformerCTCModule(sp_model, config)
+    print(f"Model: \n{model}")
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 

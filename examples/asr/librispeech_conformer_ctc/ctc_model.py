@@ -5,6 +5,8 @@ from torchaudio.prototype.models.rnnt import _ConformerEncoder
 import math
 from typing import Dict, List, Optional, Tuple
 
+from tdnn_blstm import TdnnBlstm
+
 
 class CTCModel(torch.nn.Module):
     r"""
@@ -150,3 +152,39 @@ def conformer_ctc_model_base():
         conformer_dropout=0.1,
         num_symbols=1024,
     )
+
+
+def tdnn_blstm_ctc_model(
+    input_dim: int, 
+    num_symbols: int, 
+    hidden_dim = 640, 
+    drop_out = 0.1, 
+    tdnn_blstm_spec = []
+):
+    r"""Builds TDNN-BLSTM-based CTC model.
+    """
+    encoder = TdnnBlstm(
+        input_dim=input_dim,
+        hidden_dim=hidden_dim,
+        drop_out=drop_out,
+        tdnn_blstm_spec=tdnn_blstm_spec
+    )
+    encoder_output_layer = nn.Linear(hidden_dim, num_symbols)
+
+    return CTCModel(encoder, encoder_output_layer)
+
+def tdnn_blstm_ctc_model_base():
+    return tdnn_blstm_ctc_model(
+        input_dim=80,
+        num_symbols=1024,
+        hidden_dim=640,
+        drop_out=0.1,
+        tdnn_blstm_spec=[
+            ("tdnn", 3, 1),
+            ("tdnn", 3, 4),
+            ("blstm"),
+            ("tdnn", 3, 1),
+            ("blstm"),
+        ]
+    )
+

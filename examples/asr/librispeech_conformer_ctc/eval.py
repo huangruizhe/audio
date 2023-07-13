@@ -13,7 +13,9 @@ from transforms import get_data_module
 from config import load_config, update_config, save_config
 import logging
 from tokenizer_char import CharTokenizer
+from tokenizer_char_boundary import CharTokenizerBoundary
 import werpy
+import itertools
 
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
@@ -24,11 +26,17 @@ def compute_word_level_distance(seq1, seq2):
     return torchaudio.functional.edit_distance(seq1.lower().split(), seq2.lower().split())
 
 
+def filter_repeat_letters(text):
+    return ''.join(c[0] for c in itertools.groupby(text))
+
+
 def run_eval(args, config):
     if config["model_unit"] == "bpe":
        sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
     elif config["model_unit"] == "char":
         sp_model = CharTokenizer()
+    elif config["model_unit"] == "char_boundary":
+        sp_model = CharTokenizerBoundary()
 
     # https://pytorch.org/audio/main/generated/torchaudio.models.decoder.ctc_decoder.html
     inference_args = {
@@ -63,20 +71,26 @@ def run_eval(args, config):
     with torch.no_grad():
         for idx, (batch, sample) in enumerate(dataloader):
             # WER:
-            # actual = sample[0][2]
-            # predicted = model(batch)
-            # total_edit_distance += compute_word_level_distance(actual, predicted)
-            # print(f"[{idx}][predicted]\t{predicted}")
-            # print(f"[{idx}][actual   ]\t{actual}")
-
-            # CER:
-            actual = " ".join(list(sample[0][2].replace(" ", "")))
+            actual = sample[0][2]
+            actual = filter_repeat_letters(actual)
             predicted = model(batch)
-            predicted = " ".join(list(predicted.replace(" ", "").replace("<B>", "")))
+            predicted = predicted.replace("<B>", "").replace("-", "").strip()
+            predicted = filter_repeat_letters(predicted)
             # total_edit_distance += compute_word_level_distance(actual, predicted)
             total_edit_distance += werpy.summary(actual, predicted).iloc[:, :-3]
-            # print(f"[{idx}][predicted]\t{predicted}")
-            # print(f"[{idx}][actual   ]\t{actual}")
+            print(f"[{idx}][predicted]\t{predicted}")
+            print(f"[{idx}][actual   ]\t{actual}")
+
+            # # CER:
+            # actual = " ".join(list(sample[0][2].replace(" ", "")))
+            # actual = filter_repeat_letters(actual)
+            # predicted = model(batch)
+            # predicted = " ".join(list(predicted.replace(" ", "").replace("<B>", "").replace("-", "")))
+            # predicted = filter_repeat_letters(predicted)
+            # # total_edit_distance += compute_word_level_distance(actual, predicted)
+            # total_edit_distance += werpy.summary(actual, predicted).iloc[:, :-3]
+            # # print(f"[{idx}][predicted]\t{predicted}")
+            # # print(f"[{idx}][actual   ]\t{actual}")
 
             total_length += len(actual.split())
             if idx % 100 == 0:

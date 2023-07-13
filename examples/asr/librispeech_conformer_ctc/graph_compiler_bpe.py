@@ -27,7 +27,7 @@ import torch
 class BpeCtcTrainingGraphCompiler(object):
     def __init__(
         self,
-        bpe_model_path: Path,
+        bpe_model,
         device: Union[str, torch.device] = "cpu",
         topo_type = "ctc",
     ) -> None:
@@ -47,9 +47,10 @@ class BpeCtcTrainingGraphCompiler(object):
         """
         # lang_dir = Path(lang_dir)
         # model_file = lang_dir / "bpe.model"
-        sp = spm.SentencePieceProcessor()
-        sp.load(str(bpe_model_path))
-        self.sp = sp
+        # sp = spm.SentencePieceProcessor()
+        # sp.load(str(bpe_model_path))
+        sp = bpe_model
+        self.sp = bpe_model
         # self.word_table = k2.SymbolTable.from_file(lang_dir / "words.txt")
         self.device = device
 
