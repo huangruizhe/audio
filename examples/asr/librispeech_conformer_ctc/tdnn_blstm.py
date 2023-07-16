@@ -31,6 +31,43 @@ class Blstm_with_skip(nn.Module):
         packed_output, (ht, ct) = self.lstm(packed_input)
         lstm_out, input_sizes = pad_packed_sequence(packed_output, batch_first=True)
         lstm_out = self.linear(lstm_out)
+        lstm_out = self.relu(lstm_out)  # This is very useful (great improvement: blstm1 vs. tdnn_blstm2) # IMPORTANT
+        lstm_out = self.bnorm(lstm_out.transpose(1, 2)).transpose(1, 2)
+        if self.skip:
+            lstm_out = lstm_out + x  # skip connections
+        
+        if self.drop_out is not None:
+            lstm_out = self.drop_out(lstm_out)
+
+        # assert torch.equal(input_sizes, lengths.cpu())
+        return lstm_out
+
+
+class Lstm_with_skip(nn.Module):
+    def __init__(self, input_dim, hidden_dim, out_dim, skip=True, drop_out=0.1) -> None:        
+        super().__init__()
+
+        self.lstm = nn.LSTM(
+            input_size=input_dim, 
+            hidden_size=hidden_dim, 
+            num_layers=1, 
+            batch_first=True, 
+        )
+        self.bnorm = nn.BatchNorm1d(num_features=out_dim, affine=False)
+        if drop_out > 0:
+            self.drop_out = nn.Dropout(drop_out)
+        else:
+            self.drop_out = None
+
+        self.skip = skip
+    
+    def forward(self, x, lengths) -> torch.Tensor:
+        
+
+        packed_input = pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=False)
+        packed_output, (ht, ct) = self.lstm(packed_input)
+        lstm_out, input_sizes = pad_packed_sequence(packed_output, batch_first=True)
+        lstm_out = self.linear(lstm_out)
         lstm_out = self.relu(lstm_out)
         lstm_out = self.bnorm(lstm_out.transpose(1, 2)).transpose(1, 2)
         if self.skip:

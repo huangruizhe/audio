@@ -88,6 +88,8 @@ def run_train(args, config):
     elif config["model_unit"] == "char_boundary":
         sp_model = CharTokenizerBoundary()
     model = ConformerCTCModule(sp_model, config)
+    
+    
     print(f"Model: \n{model}")
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])

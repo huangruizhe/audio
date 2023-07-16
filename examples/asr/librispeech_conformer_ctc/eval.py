@@ -78,8 +78,8 @@ def run_eval(args, config):
             predicted = filter_repeat_letters(predicted)
             # total_edit_distance += compute_word_level_distance(actual, predicted)
             total_edit_distance += werpy.summary(actual, predicted).iloc[:, :-3]
-            print(f"[{idx}][predicted]\t{predicted}")
-            print(f"[{idx}][actual   ]\t{actual}")
+            # print(f"[{idx}][predicted]\t{predicted}")
+            # print(f"[{idx}][actual   ]\t{actual}")
 
             # # CER:
             # actual = " ".join(list(sample[0][2].replace(" ", "")))
@@ -99,6 +99,7 @@ def run_eval(args, config):
                 else:
                     logger.warning(f"Processed elem {idx}; WER: {total_edit_distance.iloc[0]['ld'] / total_edit_distance.iloc[0]['m']}")
 
+    logger.warning(args.checkpoint_path)
     if type(total_edit_distance) is int:
         logger.warning(f"Final WER: {total_edit_distance / total_length}")
     else:

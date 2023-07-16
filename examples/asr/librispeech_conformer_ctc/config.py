@@ -61,23 +61,49 @@ default_config = {
     #     "joiner_activation": "tanh",
     # },
 
-    # "tdnn_blstm_config": None,
-    "tdnn_blstm_config": {
+    "rnnt_config": {
         "input_dim": 80,
-        "num_symbols": 55,
-        "hidden_dim": 640,
-        "drop_out": 0.1,
-        "tdnn_blstm_spec": [
-            ["tdnn", 3, 2],
-            ["tdnn", 3, 2],
-            ["blstm"],
-            ["tdnn", 3, 1],
-            ["blstm"],
-            # ["blstm"],
-            # ["blstm"],
-            # ["blstm"],
-        ]
+        "encoding_dim": 512,
+        "subsampling_type": "conv",  # splice, conv
+        "time_reduction_stride": 4,
+        "conformer_input_dim": 512,
+        "conformer_ffn_dim": 2048,
+        "conformer_num_layers": 4,
+        "conformer_num_heads": 8,
+        "conformer_depthwise_conv_kernel_size": 31,
+        "conformer_dropout": 0.1,
+        "num_symbols": 56,
+        "symbol_embedding_dim": 1024,
+        "num_lstm_layers": 2,
+        "lstm_hidden_dim": 512,
+        "lstm_layer_norm": True,
+        "lstm_layer_norm_epsilon": 1e-5,
+        "lstm_dropout": 0.3,
+        "joiner_activation": "tanh",
     },
+
+    # "tdnn_blstm_config": None,
+    # "tdnn_blstm_config": {
+    #     "input_dim": 80,
+    #     "num_symbols": 55,
+    #     "hidden_dim": 640,
+    #     "drop_out": 0.1,
+    #     "tdnn_blstm_spec": [
+    #         ["tdnn", 3, 1],
+    #         ["tdnn", 3, 1],
+    #         ["blstm"],
+    #         ["tdnn", 3, 1],
+    #         ["blstm"],
+    #         ["tdnn", 3, 1],
+    #         ["blstm"],
+    #         # ["blstm"],
+    #         # ["blstm"],
+
+    #         # ["blstm"],
+    #         # ["blstm"],
+    #         # ["blstm"],
+    #     ]
+    # },
 
     "subsampling_factor": 4,
 
@@ -110,7 +136,7 @@ default_config = {
     # Xiaohui's:
     "specaug_conf": {
         "new_spec_aug_api": False,
-        "n_time_masks": 2,
+        "n_time_masks": 4,
         "time_mask_param": 100,
         "p": 0.2,
         "n_freq_masks": 2,
@@ -143,7 +169,7 @@ default_config = {
     #     "zero_masking": True,
     # },
 
-    "speed_perturbation": False,
+    "speed_perturbation": True,
     "musan_noise": False,
     # "musan_noise": {
     #     "subsets": ["noise", "music"],  # "music", "speech"
