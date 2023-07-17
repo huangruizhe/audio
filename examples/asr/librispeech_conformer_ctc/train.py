@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 import sentencepiece as spm
 from tokenizer_char import CharTokenizer
 from tokenizer_char_boundary import CharTokenizerBoundary
+from tokenizer_phone_boundary import PhonemeTokenizerBoundary
 
 from lightning import ConformerCTCModule
 from pytorch_lightning import seed_everything, Trainer
@@ -16,6 +17,10 @@ import logging
 
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
+# logging.basicConfig(
+#     format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
+#     level = 10
+# )
 
 class MyFitStartCallback(Callback):
     def on_fit_start(self, trainer, pl_module):
@@ -87,10 +92,12 @@ def run_train(args, config):
         sp_model = CharTokenizer()
     elif config["model_unit"] == "char_boundary":
         sp_model = CharTokenizerBoundary()
+    elif config["model_unit"] == "phoneme_boundary":
+        sp_model = PhonemeTokenizerBoundary()
     model = ConformerCTCModule(sp_model, config)
     
-    
-    print(f"Model: \n{model}")
+    if trainer.global_rank == 0:
+        print(f"Model: \n{model}")
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 

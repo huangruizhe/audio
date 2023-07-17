@@ -14,6 +14,7 @@ from ctc_model import conformer_ctc_model, conformer_ctc_model_base, tdnn_blstm_
 from loss import MaximumLikelihoodLoss
 from graph_compiler_bpe import BpeCtcTrainingGraphCompiler
 from graph_compiler_char import CharCtcTrainingGraphCompiler
+from graph_compiler_phone import PhonemeCtcTrainingGraphCompiler
 
 
 logger = logging.getLogger()
@@ -98,7 +99,7 @@ class GreedyCTCDecoder(torch.nn.Module):
         Returns:
           List[str]: The resulting transcript
         """
-        # import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
         indices = torch.argmax(emission, dim=-1)  # [num_seq,]
         # indices = indices.squeeze()
         indices = torch.unique_consecutive(indices, dim=-1)
@@ -157,7 +158,7 @@ def tdnn_blstm_ctc_customized(config):
 
 
 class ConformerCTCModule(LightningModule):
-    def __init__(self, sp_model, config, inference_args=None):
+    def __init__(self, sp_model, config, inference_args=None, blank_idx=None):
         super().__init__()
 
         self.sp_model = sp_model
@@ -168,7 +169,10 @@ class ConformerCTCModule(LightningModule):
         #     f"of {spm_vocab_size}. Please provide a correctly configured SentencePiece model."
         # )
         assert spm_vocab_size == config["spm_vocab_size"]
-        self.blank_idx = spm_vocab_size
+        if blank_idx is None:
+            self.blank_idx = spm_vocab_size
+        else:
+            self.blank_idx = blank_idx
 
         self.config = config
 
@@ -275,6 +279,14 @@ class ConformerCTCModule(LightningModule):
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),
                 topo_type=topo_type,
+            )
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
+        elif self.config["model_unit"] == "phoneme_boundary":
+            graph_compiler = PhonemeCtcTrainingGraphCompiler(
+                bpe_model=self.sp_model,
+                device=self.device,  # torch.device("cuda", self.global_rank),
+                topo_type=topo_type,
+                index_offset=1,
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
 

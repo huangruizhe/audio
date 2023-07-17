@@ -14,6 +14,7 @@ from config import load_config, update_config, save_config
 import logging
 from tokenizer_char import CharTokenizer
 from tokenizer_char_boundary import CharTokenizerBoundary
+from tokenizer_phone_boundary import PhonemeTokenizerBoundary
 import werpy
 import itertools
 
@@ -32,11 +33,19 @@ def filter_repeat_letters(text):
 
 def run_eval(args, config):
     if config["model_unit"] == "bpe":
-       sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+        sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+        blank_id = None
     elif config["model_unit"] == "char":
         sp_model = CharTokenizer()
+        blank_id = None
     elif config["model_unit"] == "char_boundary":
         sp_model = CharTokenizerBoundary()
+        blank_id = None
+    elif config["model_unit"] == "phoneme_boundary":
+        sp_model = PhonemeTokenizerBoundary()
+        blank_id = sp_model.blank_id
+    else:
+        raise NotImplementedError
 
     # https://pytorch.org/audio/main/generated/torchaudio.models.decoder.ctc_decoder.html
     inference_args = {
@@ -59,7 +68,7 @@ def run_eval(args, config):
     #     "blank_token": "q",
     # }
 
-    model = ConformerCTCModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model, inference_args=inference_args, config=config).eval()
+    model = ConformerCTCModule.load_from_checkpoint(args.checkpoint_path, sp_model=sp_model, inference_args=inference_args, config=config, blank_idx=blank_id).eval()
     data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
 
     if args.use_cuda:
@@ -78,8 +87,8 @@ def run_eval(args, config):
             predicted = filter_repeat_letters(predicted)
             # total_edit_distance += compute_word_level_distance(actual, predicted)
             total_edit_distance += werpy.summary(actual, predicted).iloc[:, :-3]
-            # print(f"[{idx}][predicted]\t{predicted}")
-            # print(f"[{idx}][actual   ]\t{actual}")
+            print(f"[{idx}][predicted]\t{predicted}")
+            print(f"[{idx}][actual   ]\t{actual}")
 
             # # CER:
             # actual = " ".join(list(sample[0][2].replace(" ", "")))

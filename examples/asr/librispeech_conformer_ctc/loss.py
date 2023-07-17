@@ -5,6 +5,7 @@ from torch import Tensor, nn
 
 from graph_compiler_bpe import BpeCtcTrainingGraphCompiler
 from graph_compiler_char import CharCtcTrainingGraphCompiler
+from graph_compiler_phone import PhonemeCtcTrainingGraphCompiler
 
 
 class MaximumLikelihoodLoss(nn.Module):
@@ -80,6 +81,9 @@ class MaximumLikelihoodLoss(nn.Module):
         if type(self.graph_compiler) is BpeCtcTrainingGraphCompiler:
             decoding_graph = self.graph_compiler.compile(token_ids)
         elif type(self.graph_compiler) is CharCtcTrainingGraphCompiler:
+            _samples = [samples[i] for i in indices.tolist()]
+            decoding_graph = self.graph_compiler.compile(token_ids, _samples)
+        elif type(self.graph_compiler) is PhonemeCtcTrainingGraphCompiler:
             _samples = [samples[i] for i in indices.tolist()]
             decoding_graph = self.graph_compiler.compile(token_ids, _samples)
         else:

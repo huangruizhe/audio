@@ -16,7 +16,8 @@ default_config = {
     # model:
     # "spm_vocab_size": 1023,
     # "spm_vocab_size": 29,
-    "spm_vocab_size": 55,
+    # "spm_vocab_size": 55,
+    "spm_vocab_size": 181,
 
     # # Xiaohui's
     # "rnnt_config": {
@@ -72,7 +73,7 @@ default_config = {
         "conformer_num_heads": 8,
         "conformer_depthwise_conv_kernel_size": 31,
         "conformer_dropout": 0.1,
-        "num_symbols": 56,
+        "num_symbols": 181,
         "symbol_embedding_dim": 1024,
         "num_lstm_layers": 2,
         "lstm_hidden_dim": 512,
@@ -187,7 +188,7 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
-    "model_unit": "char_boundary",
+    "model_unit": "phoneme_boundary",
     "k2_loss": True,
 }
 
@@ -210,7 +211,7 @@ def update_missing_fields(d, d_ref):
 def sanity_check(config):
     if "rnnt_config" in config and config["rnnt_config"] is not None:
         assert config["subsampling_factor"] == config["rnnt_config"]["time_reduction_stride"]
-        assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"]
+        assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"] or config["spm_vocab_size"] == config["rnnt_config"]["num_symbols"]
 
     if "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
         subsampling_factor = 1
