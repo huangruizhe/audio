@@ -209,6 +209,7 @@ class Trie(object):
                 # No intra-word blank/silence
                 if len(c.children) > 0:
                     res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
                     _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_log_scale=sil_log_scale, blank_id=blank_id)
                     next_index = _next_index
                     res.extend(_res)
@@ -219,9 +220,10 @@ class Trie(object):
                 if len(c.children) > 0:
                     if i == 0:
                         res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {sil_log_scale * weight}"))
-                        res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {0}"))
-                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token} {0}"))
+                        res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} 0"))
+                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token} 0"))
                     res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
                     _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_log_scale=sil_log_scale, blank_id=blank_id)
                     next_index = _next_index
                     res.extend(_res)
@@ -231,9 +233,11 @@ class Trie(object):
                         res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {0}"))
                     res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token} {0}"))
                     res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token} {weight}"))
+                    res.append((last_index, f"{{x + {last_index}}} {{x + {last_index}}} {token} {token} 0"))
             
         if node == self.root:
-            res.sort()
+            # res.sort()
+            res = sorted(set(res))
             res = [r[1] for r in res]
             assert next_index == last_index, f"{next_index} vs. {last_index}"
             
@@ -326,8 +330,8 @@ def test3():
         for prob, tokens in lexicon[w]:
             trie.insert(tokens, weight=prob)
         
-        # res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type="ctc", sil_log_scale=1.0, blank_id=token2id["-"])
-        res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type="hmm", blank_id=token2id["-"])
+        res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type="ctc", sil_log_scale=1.0, blank_id=token2id["-"])
+        # res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type="hmm", blank_id=token2id["-"])
         _lexicon[w] = (res, next_index)
 
     fsa_str = ""

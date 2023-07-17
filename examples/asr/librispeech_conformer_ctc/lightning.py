@@ -99,7 +99,7 @@ class GreedyCTCDecoder(torch.nn.Module):
         Returns:
           List[str]: The resulting transcript
         """
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         indices = torch.argmax(emission, dim=-1)  # [num_seq,]
         # indices = indices.squeeze()
         indices = torch.unique_consecutive(indices, dim=-1)
