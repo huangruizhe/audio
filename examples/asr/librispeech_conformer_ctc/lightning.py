@@ -287,6 +287,8 @@ class ConformerCTCModule(LightningModule):
                 device=self.device,  # torch.device("cuda", self.global_rank),
                 topo_type=topo_type,
                 index_offset=1,
+                sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
+                sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
 

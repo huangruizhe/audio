@@ -5,6 +5,8 @@ from pathlib import Path
 from fastnumbers import check_float
 from collections import defaultdict
 import math
+import subprocess
+
 
 def read_lexicon(filename: str, has_boundary=False):
     """Read a lexicon from `filename`.
@@ -77,6 +79,28 @@ def read_lexicon(filename: str, has_boundary=False):
     # print(f"Tokens: {list(token2id.keys())}")
 
     return ans, token2id
+
+
+def call_mfa_g2p_cmd(words, g2p_model="english_us_mfa"):
+    # The input is a list of words
+
+    # https://stackabuse.com/executing-shell-commands-with-python/
+    mfa_g2p_call = subprocess.Popen(["mfa", "g2p", "-", g2p_model, "-"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    output, errors = mfa_g2p_call.communicate(input="\n".join(words))
+    if mfa_g2p_call.wait() == 0:
+        return output.strip().split("\n")
+    else:
+        print(errors)
+        exit(1)
+
+
+def call_mfa_g2p_python(words, g2p_model="english_us_mfa"):
+    # https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner/blob/main/montreal_forced_aligner/command_line/g2p.py
+    pass
+
+
+def call_mfa_g2p(words, g2p_model="english_us_mfa"):
+    return call_mfa_g2p_python(words, g2p_model=g2p_model)
 
 
 class TrieNode:
@@ -167,12 +191,13 @@ class Trie(object):
             
         return res, next_index, last_index
     
-    def to_k2_str_topo(self, node=None, start_index=0, last_index=-1, token2id=None, index_offset=1, topo_type="ctc", sil_log_scale=1.0, blank_id = 0):
+    def to_k2_str_topo(self, node=None, start_index=0, last_index=-1, token2id=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, blank_id = 0):
         if node is None:
             node = self.root
 
             cnt = 1  # count the number of non-leaf nodes
             # cnt_children = 0  # count the number of children
+            cnt_leaves = 0  # count the number of leaves
             temp_list = list(self.root.children.values())
             while len(temp_list) > 0:
                 n = temp_list.pop()
@@ -180,16 +205,15 @@ class Trie(object):
                 if len(n.children) > 0:
                     cnt += 1
                     temp_list.extend(n.children.values())
+                else:
+                    cnt_leaves += 1
             
             if topo_type == "hmm":
-                last_index = start_index + cnt + 1
+                last_index = start_index + cnt + 1 + cnt_leaves
             else:
-                last_index = start_index + cnt + cnt
+                last_index = start_index + cnt + cnt + cnt_leaves
 
         res = []
-
-        if topo_type == "hmm":
-            assert sil_log_scale == 1.0
         
         next_index = start_index + 1  # next_index is the next availabe state id
         if topo_type == "hmm" and node != self.root:
@@ -210,30 +234,51 @@ class Trie(object):
                 if len(c.children) > 0:
                     res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
-                    _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_log_scale=sil_log_scale, blank_id=blank_id)
+                    _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=blank_id)
                     next_index = _next_index
                     res.extend(_res)
                 else:
                     res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token} {weight}"))
+                    # res.append((last_index, f"{{x + {last_index}}} {{x + {last_index}}} {token} {token} 0"))
+                    res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} 0"))
+                    next_index += 1
             else:
                 # There is intra-word blank/silence with some probability
                 if len(c.children) > 0:
                     if i == 0:
-                        res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {sil_log_scale * weight}"))
-                        res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} 0"))
+                        if node == self.root:  # inter-word blank at the beginning of each word/trie
+                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {weight - sil_penalty_inter_word}"))
+                            res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_inter_word}"))
+                        else:
+                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {weight - sil_penalty_intra_word}"))
+                            res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_intra_word}"))
                     res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token} 0"))
                     res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
-                    _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_log_scale=sil_log_scale, blank_id=blank_id)
+                    _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=blank_id)
                     next_index = _next_index
                     res.extend(_res)
                 else:
                     if i == 0:
-                        res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {sil_log_scale * weight}"))
-                        res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {0}"))
-                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token} {0}"))
+                        if node == self.root:  # inter-word blank at the beginning of each word/trie
+                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {weight - sil_penalty_inter_word}"))
+                            res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_inter_word}"))
+                        else:
+                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {weight - sil_penalty_intra_word}"))
+                            res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_intra_word}"))
+                    # res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token} {0}"))
+                    # res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token} {weight}"))
+                    # res.append((last_index, f"{{x + {last_index}}} {{x + {last_index}}} {token} {token} 0"))
+                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token} {weight}"))
+                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token} {weight}"))
                     res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token} {weight}"))
-                    res.append((last_index, f"{{x + {last_index}}} {{x + {last_index}}} {token} {token} 0"))
+                    res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} 0"))
+                    next_index += 1
+
             
         if node == self.root:
             # res.sort()
@@ -276,7 +321,7 @@ def test1():
 
 def test2():
     lexicon, token2id = read_lexicon("/fsx/users/huangruizhe/mfa-models/dictionary/english/mfa/english_mfa.dict")
-    
+
     _lexicon = dict()
     for w in ["pen", "pineapple", "apple", "pen"]:
         trie = Trie()
@@ -321,46 +366,51 @@ def test2():
 
 
 def test3():
-    lexicon, token2id = read_lexicon("/fsx/users/huangruizhe/mfa-models/dictionary/english/mfa/english_mfa.dict")
+    lexicon, token2id = read_lexicon(
+        "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
+        has_boundary=True,
+    )
+    try:
+        lexicon_new_words, _ = read_lexicon(
+            "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+            has_boundary=True,
+        )
+        lexicon.update(lexicon_new_words)
+    except:
+        pass
     token2id["-"] = len(token2id)
+
+    sil_penalty_intra_word = 0
+    sil_penalty_inter_word = 0
+    topo_type = "ctc"
+
+    text = "pen pineapple apple pen"
+    text = "THAT THE HEBREWS WERE RESTIVE UNDER THIS TYRANNY WAS NATURAL INEVITABLE"
     
     _lexicon = dict()
-    for w in ["pen", "pineapple", "apple", "pen"]:
+    for w in text.strip().lower().split():
         trie = Trie()
         for prob, tokens in lexicon[w]:
             trie.insert(tokens, weight=prob)
         
-        res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type="ctc", sil_log_scale=1.0, blank_id=token2id["-"])
-        # res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type="hmm", blank_id=token2id["-"])
+        res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=token2id["-"])
         _lexicon[w] = (res, next_index)
 
     fsa_str = ""
     next_index = 0
 
-    res, _next_index = _lexicon["pen"]
-    fsa_str += "\n"
-    fsa_str += fstr("\n".join(res), x = next_index)
-    next_index += _next_index
-    
-    res, _next_index = _lexicon["pineapple"]
-    fsa_str += "\n"
-    fsa_str += fstr("\n".join(res), x = next_index)
-    next_index += _next_index
-
-    res, _next_index = _lexicon["apple"]
-    fsa_str += "\n"
-    fsa_str += fstr("\n".join(res), x = next_index)
-    next_index += _next_index
-
-    res, _next_index = _lexicon["pen"]
-    fsa_str += "\n"
-    fsa_str += fstr("\n".join(res), x = next_index)
-    next_index += _next_index
+    for w in text.strip().lower().split():
+        res, _next_index = _lexicon[w]
+        fsa_str += "\n"
+        fsa_str += fstr("\n".join(res), x = next_index)
+        # print(w)
+        # print(fstr("\n".join(res), x = next_index))
+        next_index += _next_index
 
     blank_id = token2id["-"]
-    fsa_str += f"\n{next_index} {next_index + 1} {blank_id} {blank_id} 0"
+    fsa_str += f"\n{next_index} {next_index + 1} {blank_id} {blank_id} {-sil_penalty_inter_word}"
     fsa_str += f"\n{next_index} {next_index + 2} -1 -1 0"
-    fsa_str += f"\n{next_index + 1} {next_index + 1} {blank_id} {blank_id} 0"
+    fsa_str += f"\n{next_index + 1} {next_index + 1} {blank_id} {blank_id} {-sil_penalty_inter_word}"
     fsa_str += f"\n{next_index + 1} {next_index + 2} -1 -1 0"
     fsa_str += f"\n{next_index + 2}"
     # print(res)

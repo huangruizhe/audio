@@ -137,7 +137,7 @@ default_config = {
     # Xiaohui's:
     "specaug_conf": {
         "new_spec_aug_api": False,
-        "n_time_masks": 2,
+        "n_time_masks": 0,
         "time_mask_param": 100,
         "p": 0.2,
         "n_freq_masks": 2,
@@ -190,6 +190,8 @@ default_config = {
     "topo_type": "hmm",
     "model_unit": "phoneme_boundary",
     "k2_loss": True,
+    "sil_penalty_intra_word": 0.0,  # The larger, the more penalty for the <sil> arcs
+    "sil_penalty_inter_word": 0.0,
 }
 
 

@@ -9,6 +9,15 @@ class PhonemeTokenizerBoundary:
             "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
             has_boundary=True,
         )
+        try:
+            lexicon_new_words, _ = read_lexicon(
+                "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+                has_boundary=True,
+            )
+            lexicon.update(lexicon_new_words)
+        except:
+            pass
+
         self.lexicon = lexicon
         self.token2id = token2id
  
@@ -34,6 +43,9 @@ class PhonemeTokenizerBoundary:
 
     def vocab_size(self):
         return self.get_piece_size()
+    
+    def add_new_word(self, word):
+        pass
     
     def encode(self, sentence, out_type: type = int, insert_blank = False) -> List:
         sentence = sentence.strip().lower()

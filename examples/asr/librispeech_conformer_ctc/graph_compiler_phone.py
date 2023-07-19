@@ -14,6 +14,8 @@ class PhonemeCtcTrainingGraphCompiler(object):
         device: Union[str, torch.device] = "cpu",
         topo_type = "ctc",
         index_offset=1,  # for torchaudio's non-zero blank id
+        sil_penalty_intra_word=0,
+        sil_penalty_inter_word=0,
     ) -> None:
         """
         Args:
@@ -40,19 +42,52 @@ class PhonemeCtcTrainingGraphCompiler(object):
         self.topo = None
 
         self.topo_type = topo_type
+        self.index_offset = index_offset
+        self.sil_penalty_intra_word = sil_penalty_intra_word
+        self.sil_penalty_inter_word = sil_penalty_inter_word
 
-        self.lexicon_fst = self.make_lexicon_fst(index_offset=index_offset, topo_type=topo_type)
+        self.lexicon_fst = self.make_lexicon_fst(
+            index_offset=index_offset, 
+            topo_type=topo_type, 
+            sil_penalty_intra_word=sil_penalty_intra_word,
+            sil_penalty_inter_word=sil_penalty_inter_word,
+        )
 
-    def make_lexicon_fst(self, index_offset=1, topo_type="ctc"):
-        _lexicon = dict()
-        for w, plist in self.sp.lexicon.items():
+    def make_lexicon_fst(self, lexicon=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0):
+        lexicon_fst = dict()
+        if lexicon is None:
+            lexicon = self.sp.lexicon
+        for w, plist in lexicon.items():
             trie = Trie()
             for prob, tokens in plist:
                 trie.insert(tokens, weight=prob)
             
-            res, next_index, last_index = trie.to_k2_str_topo(token2id=self.sp.token2id, index_offset=index_offset, topo_type=topo_type, blank_id=0)
-            _lexicon[w] = (res, next_index)
-        return _lexicon
+            res, next_index, last_index = trie.to_k2_str_topo(
+                token2id=self.sp.token2id, 
+                index_offset=index_offset, 
+                topo_type=topo_type, 
+                blank_id=0,
+                sil_penalty_intra_word=sil_penalty_intra_word,
+                sil_penalty_inter_word=sil_penalty_inter_word,
+            )
+            lexicon_fst[w] = (res, next_index)
+        return lexicon_fst
+
+    def get_fst(self, word):
+        if word in self.lexicon_fst:
+            return self.lexicon_fst[word]
+        else:  # support new words
+            print(f"Adding new word to the lexicon: {word}")
+            lexicon_ = self.sp.add_new_word(word)
+            lexicon_fst_ = self.make_lexicon_fst(
+                lexicon=lexicon_,
+                index_offset=self.index_offset, 
+                topo_type=self.topo_type, 
+                sil_penalty_intra_word=self.sil_penalty_intra_word,
+                sil_penalty_inter_word=self.sil_penalty_inter_word,
+            )
+            self.lexicon_fst.update(lexicon_fst_)
+            return self.lexicon_fst[word]
 
     def _get_decoding_graph(self, sentence):
         next_index = 0
@@ -66,9 +101,9 @@ class PhonemeCtcTrainingGraphCompiler(object):
             next_index += _next_index
 
         blank_id = 0
-        fsa_str += f"\n{next_index} {next_index + 1} {blank_id} {blank_id} 0"
+        fsa_str += f"\n{next_index} {next_index + 1} {blank_id} {blank_id} 0"  # TODO: {-sil_penalty_inter_word}
         fsa_str += f"\n{next_index} {next_index + 2} -1 -1 0"
-        fsa_str += f"\n{next_index + 1} {next_index + 1} {blank_id} {blank_id} 0"
+        fsa_str += f"\n{next_index + 1} {next_index + 1} {blank_id} {blank_id} 0"  # TODO: {-sil_penalty_inter_word}
         fsa_str += f"\n{next_index + 1} {next_index + 2} -1 -1 0"
         fsa_str += f"\n{next_index + 2}"
         fsa_str = fsa_str.strip()
