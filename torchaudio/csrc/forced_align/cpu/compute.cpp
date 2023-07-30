@@ -13,30 +13,33 @@ void forced_align_impl(
     const torch::Tensor& logProbs,
     const torch::Tensor& targets,
     const int64_t blank,
-    torch::Tensor& paths) {
+    torch::Tensor& paths,
+    ruizhe_ word_start_idx,
+    ruizhe_ inter_word_blank_penalty, 
+    ruizhe_ intra_word_blank_penalty) {
   const scalar_t kNegInfinity = -std::numeric_limits<scalar_t>::infinity();
   using target_t = typename std::
       conditional<target_scalar_type == torch::kInt, int, int64_t>::type;
   const auto batchIndex =
       0; // TODO: support batch version and use the real batch index
   const auto T = logProbs.size(1);
-  const auto L = targets.size(1);
+  const auto L = targets.size(1);  # this has to be changed for batch processing, we will need new arguments including input/label lengths
   const auto S = 2 * L + 1;
   torch::Tensor alphas = torch::empty(
                              {2, S},
                              torch::TensorOptions()
                                  .device(logProbs.device())
                                  .dtype(logProbs.dtype()))
-                             .fill_(kNegInfinity);
+                             .fill_(kNegInfinity);     # 滚动数组
   torch::Tensor backPtr = torch::empty({T, S}, torch::kInt8).fill_(-1);
-  auto logProbs_a = logProbs.accessor<scalar_t, 3>();
-  auto targets_a = targets.accessor<target_t, 2>();
+  auto logProbs_a = logProbs.accessor<scalar_t, 3>();  # 三维数组，通过它来访问相应的数组，而不是直接访问
+  auto targets_a = targets.accessor<target_t, 2>();    # 二维
   auto paths_a = paths.accessor<target_t, 2>();
   auto alphas_a = alphas.accessor<scalar_t, 2>();
   auto backPtr_a = backPtr.accessor<int8_t, 2>();
-  auto R = 0;
+  auto R = 0;  # 必须添加的blank个数
   for (auto i = 1; i < L; i++) {
-    if (targets_a[batchIndex][i] == targets_a[batchIndex][i - 1]) {
+    if (targets_a[batchIndex][i] == targets_a[batchIndex][i - 1]) {  # TODO: modify HMM topology for this mandatory blank
       ++R;
     }
   }
@@ -48,17 +51,20 @@ void forced_align_impl(
       L,
       ", and number of repeats: ",
       R);
-  auto start = T - (L + R) > 0 ? 0 : 1;
+  auto start = T - (L + R) > 0 ? 0 : 1;  # 当前可计算的扩增target的索引
   auto end = (S == 1) ? 1 : 2;
   for (auto i = start; i < end; i++) {
     auto labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
-    alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx];
+    if labelIdx == blank:
+        alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx] + inter_word_blank_penalty;
+    else:
+        alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx];
   }
   for (auto t = 1; t < T; t++) {
     if (T - t <= L + R) {
       if ((start % 2 == 1) &&
           targets_a[batchIndex][start / 2] !=
-              targets_a[batchIndex][start / 2 + 1]) {
+              targets_a[batchIndex][start / 2 + 1]) {  # no blank is needed
         start = start + 1;
       }
       start = start + 1;
@@ -79,17 +85,25 @@ void forced_align_impl(
     }
     if (start == 0) {
       alphas_a[curIdxOffset][0] =
-          alphas_a[prevIdxOffset][0] + logProbs_a[batchIndex][t][blank];
+          alphas_a[prevIdxOffset][0] + logProbs_a[batchIndex][t][blank] + inter_word_blank_penalty;
       backPtr_a[t][0] = 0;
       startloop += 1;
     }
 
-    for (auto i = startloop; i < end; i++) {
+    for (auto i = startloop; i < end; i++) {   # 提高计算效率，只需要访问/计算矩阵中间的一部分，而不是每一个cell
+      # 计算t时刻land在扩增taget中第i个token的概率
       auto x0 = alphas_a[prevIdxOffset][i];
       auto x1 = alphas_a[prevIdxOffset][i - 1];
       auto x2 = -std::numeric_limits<scalar_t>::infinity();
 
       auto labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
+      if labelIdx == blank:
+          if i == 0 or i == S - 1 or i / 2 + 1 in word_start_idx:  # inter-word blank
+              blank_penalty = inter_word_blank_penalty
+          else:  # intra-word blank
+              blank_penalty = intra_word_blank_penalty
+      else:
+          blank_penalty = 0
 
       // In CTC, the optimal path may optionally chose to skip a blank label.
       // x2 represents skipping a letter, and can only happen if we're not
@@ -110,7 +124,7 @@ void forced_align_impl(
         result = x0;
         backPtr_a[t][i] = 0;
       }
-      alphas_a[curIdxOffset][i] = result + logProbs_a[batchIndex][t][labelIdx];
+      alphas_a[curIdxOffset][i] = result + logProbs_a[batchIndex][t][labelIdx] + blank_penalty;
     }
   }
   auto idx1 = (T - 1) % 2;
