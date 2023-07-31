@@ -17,7 +17,8 @@ default_config = {
     # "spm_vocab_size": 1023,
     # "spm_vocab_size": 29,
     # "spm_vocab_size": 55,
-    "spm_vocab_size": 181,
+    "spm_vocab_size": 94,
+    # "spm_vocab_size": 181,
 
     # # Xiaohui's
     # "rnnt_config": {
@@ -86,23 +87,30 @@ default_config = {
     # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
-        "num_symbols": 181,
+        "num_symbols": 94,
         "hidden_dim": 640,
         "drop_out": 0.1,
         "tdnn_blstm_spec": [
-            ["tdnn", 3, 2],
-            ["tdnn", 3, 2],
-            ["blstm"],
-            ["tdnn", 3, 1],
-            ["blstm"],
-            ["tdnn", 3, 1],
-            ["blstm"],
+            # ["tdnn", 3, 2],
+            # ["tdnn", 3, 2],
             # ["blstm"],
+            # ["tdnn", 3, 1],
             # ["blstm"],
+            # ["tdnn", 3, 1],
+            # ["blstm"],
+            # # ["blstm"],
+            # # ["blstm"],
 
             # ["blstm"],
             # ["blstm"],
             # ["blstm"],
+
+            # ["tdnn", 3, 2],
+            # ["tdnn", 3, 2],
+            ["tdnn", 5, 2],
+            ["tdnn", 3, 2],
+            # ["tdnn", 3, 1],
+            ["ffn", 5],
         ]
     },
 
@@ -127,7 +135,7 @@ default_config = {
         "anneal_factor": 0.96,
         "lr": 8e-4,
         "batch_size": None,
-        "max_tokens": 1500,
+        "max_tokens": 2000,
         # "max_tokens": 550,  # for stride=1, and set `accumulate_grad_batches=3` in train.py
         "train_num_buckets": 50,
         "reduction": "sum",
@@ -188,10 +196,10 @@ default_config = {
     "updated": False,
 
     "topo_type": "hmm",
-    "model_unit": "phoneme_boundary",
+    "model_unit": "phoneme",
     "k2_loss": True,
-    "sil_penalty_intra_word": 0.0,  # The larger, the more penalty for the <sil> arcs
-    "sil_penalty_inter_word": 0.0,
+    "sil_penalty_intra_word": 0.05,  # The larger, the more penalty for the <sil> arcs
+    "sil_penalty_inter_word": 0.05,
 }
 
 
@@ -218,7 +226,7 @@ def sanity_check(config):
     if "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
         subsampling_factor = 1
         for x in config["tdnn_blstm_config"]["tdnn_blstm_spec"]:
-            if len(x) > 1:
+            if x[0] == "tdnn":
                 subsampling_factor *= x[2]
         assert config["subsampling_factor"] == subsampling_factor
         assert config["spm_vocab_size"] == config["tdnn_blstm_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs. {config["tdnn_blstm_config"]["num_symbols"]}'

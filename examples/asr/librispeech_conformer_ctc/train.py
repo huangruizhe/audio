@@ -92,8 +92,10 @@ def run_train(args, config):
         sp_model = CharTokenizer()
     elif config["model_unit"] == "char_boundary":
         sp_model = CharTokenizerBoundary()
+    elif config["model_unit"] == "phoneme":
+        sp_model = PhonemeTokenizerBoundary(has_boundary=False)
     elif config["model_unit"] == "phoneme_boundary":
-        sp_model = PhonemeTokenizerBoundary()
+        sp_model = PhonemeTokenizerBoundary(has_boundary=True)
     model = ConformerCTCModule(sp_model, config)
     
     if trainer.global_rank == 0:

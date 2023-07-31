@@ -31,13 +31,13 @@ def read_lexicon(filename: str, has_boundary=False):
     token2id = dict()
 
     with open(filename, "r", encoding="utf-8") as fin:
-        whitespace = re.compile("[ \t]+")
+        # whitespace = re.compile("[ \t]+")
         for line in fin:
-            a = whitespace.split(line.strip(" \t\r\n"))
+            a = line.strip().split("\t")
             if len(a) == 0:
                 continue
 
-            if len(a) < 2:
+            if len(a) != 2 and len(a) != 6:
                 logging.info(f"Found bad line {line} in lexicon file {filename}")
                 logging.info("Every line is expected to contain at least 2 fields")
                 sys.exit(1)
@@ -47,12 +47,18 @@ def read_lexicon(filename: str, has_boundary=False):
                 logging.info("<eps> should not be a valid word")
                 sys.exit(1)
 
-            tokens = a[1:]
-
-            prob = 1.0  # probability
-            if check_float(tokens[0]):
-                prob = float(tokens[0])
-                tokens = tokens[1:]
+            # tokens = a[1:]
+            # prob = 1.0  # probability
+            # if check_float(tokens[0]):
+            #     prob = float(tokens[0])
+            #     tokens = tokens[1:]
+            
+            if len(a) == 2:
+                tokens = a[1].split()
+                prob = 1.0
+            elif len(a) == 6:
+                tokens = a[5].split()
+                prob = float(a[1])
             
             if has_boundary:
                 tokens[0] = f"▁{tokens[0]}"
@@ -70,13 +76,13 @@ def read_lexicon(filename: str, has_boundary=False):
             entry[0] /= total 
 
     total_entries = sum([len(v) for k, v in ans.items()])
-    logging.info(f"Number of words in dict: {len(ans)}")
-    logging.info(f"Number of tokens in dict: {len(token2id)}")
-    logging.info(f"Average number of pronunciations per word: {total_entries/len(ans):.2f}")
-    # print(f"Number of words in dict: {len(ans)}")
-    # print(f"Number of tokens in dict: {len(token2id)}")
-    # print(f"Average number of pronunciations per word: {total_entries/len(ans):.2f}")
-    # print(f"Tokens: {list(token2id.keys())}")
+    # logging.info(f"Number of words in dict: {len(ans)}")
+    # logging.info(f"Number of tokens in dict: {len(token2id)}")
+    # logging.info(f"Average number of pronunciations per word: {total_entries/len(ans):.2f}")
+    print(f"Number of words in dict: {len(ans)}")
+    print(f"Number of tokens in dict: {len(token2id)}")
+    print(f"Average number of pronunciations per word: {total_entries/len(ans):.2f}")
+    print(f"Tokens: {list(token2id.keys())}")
 
     return ans, token2id
 
@@ -110,6 +116,7 @@ class TrieNode:
         self.state_id = None
         self.weight = -1e9
         self.children = {}
+        self.need_blk = False  # True if a mandatory blank is needed between this token and its parent
 
 
 class Trie(object):
@@ -124,6 +131,7 @@ class Trie(object):
         
         # Loop through each token in the word
         # Check if there is no child containing the token, create a new child for the current node
+        prev_token = None
         for token in word_tokens:
             if token in node.children:
                 node = node.children[token]
@@ -135,6 +143,10 @@ class Trie(object):
                 node.children[token] = new_node
                 node = new_node
                 node.weight = weight
+            
+            if token == prev_token:
+                node.need_blk = True
+            prev_token = token
         
         # Mark the end of a word
         node.is_end = True
@@ -191,7 +203,7 @@ class Trie(object):
             
         return res, next_index, last_index
     
-    def to_k2_str_topo(self, node=None, start_index=0, last_index=-1, token2id=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, blank_id = 0):
+    def to_k2_str_topo(self, node=None, start_index=0, last_index=-1, token2id=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, blank_id = 0, aux_offset=0):
         if node is None:
             node = self.root
 
@@ -249,13 +261,14 @@ class Trie(object):
                 if len(c.children) > 0:
                     if i == 0:
                         if node == self.root:  # inter-word blank at the beginning of each word/trie
-                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {weight - sil_penalty_inter_word}"))
+                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_inter_word}"))
                             res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_inter_word}"))
-                        else:
-                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {weight - sil_penalty_intra_word}"))
+                        else:  # intra-word blank
+                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_intra_word}"))
                             res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_intra_word}"))
-                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token} 0"))
-                    res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
+                    _aux_offset = aux_offset if node == self.root else 0
+                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
+                    res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
                     _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=blank_id)
                     next_index = _next_index
@@ -263,18 +276,19 @@ class Trie(object):
                 else:
                     if i == 0:
                         if node == self.root:  # inter-word blank at the beginning of each word/trie
-                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {weight - sil_penalty_inter_word}"))
+                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_inter_word}"))
                             res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_inter_word}"))
-                        else:
-                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {weight - sil_penalty_intra_word}"))
+                        else:  # intra-word blank
+                            res.append((start_index, f"{{x + {start_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_intra_word}"))
                             res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_intra_word}"))
                     # res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token} {0}"))
                     # res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token} {weight}"))
                     # res.append((last_index, f"{{x + {last_index}}} {{x + {last_index}}} {token} {token} 0"))
-                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token} {weight}"))
-                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token} {weight}"))
-                    res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token} {weight}"))
-                    res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
+                    _aux_offset = aux_offset if node == self.root else 0
+                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token + _aux_offset} {weight}"))
+                    res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
+                    res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token + _aux_offset} {weight}"))
+                    res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} 0"))
                     next_index += 1
@@ -320,7 +334,23 @@ def test1():
 
 
 def test2():
-    lexicon, token2id = read_lexicon("/fsx/users/huangruizhe/mfa-models/dictionary/english/mfa/english_mfa.dict")
+    # get pronunciation graph
+
+    lexicon, token2id = read_lexicon(
+        # "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
+        "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
+        has_boundary=True,
+    )
+    try:
+        lexicon_new_words, _ = read_lexicon(
+            "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+            has_boundary=True,
+        )
+        lexicon.update(lexicon_new_words)
+    except:
+        pass
+
+    print(token2id)
 
     _lexicon = dict()
     for w in ["pen", "pineapple", "apple", "pen"]:
@@ -367,7 +397,8 @@ def test2():
 
 def test3():
     lexicon, token2id = read_lexicon(
-        "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
+        # "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
+        "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
         has_boundary=True,
     )
     try:

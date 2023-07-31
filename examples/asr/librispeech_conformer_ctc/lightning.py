@@ -168,7 +168,7 @@ class ConformerCTCModule(LightningModule):
         #     f"vocabulary size {_expected_spm_vocab_size}, but the given SentencePiece model has a vocabulary size "
         #     f"of {spm_vocab_size}. Please provide a correctly configured SentencePiece model."
         # )
-        assert spm_vocab_size == config["spm_vocab_size"]
+        assert spm_vocab_size == config["spm_vocab_size"], f'{spm_vocab_size} vs {config["spm_vocab_size"]}'
         if blank_idx is None:
             self.blank_idx = spm_vocab_size
         else:
@@ -281,7 +281,7 @@ class ConformerCTCModule(LightningModule):
                 topo_type=topo_type,
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
-        elif self.config["model_unit"] == "phoneme_boundary":
+        elif self.config["model_unit"] == "phoneme" or self.config["model_unit"] == "phoneme_boundary":
             graph_compiler = PhonemeCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),

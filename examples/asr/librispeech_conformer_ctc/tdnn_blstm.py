@@ -53,6 +53,7 @@ class Lstm_with_skip(nn.Module):
             num_layers=1, 
             batch_first=True, 
         )
+        # self.relu = nn.ReLU(inplace=True)
         self.bnorm = nn.BatchNorm1d(num_features=out_dim, affine=False)
         if drop_out > 0:
             self.drop_out = nn.Dropout(drop_out)
@@ -62,13 +63,9 @@ class Lstm_with_skip(nn.Module):
         self.skip = skip
     
     def forward(self, x, lengths) -> torch.Tensor:
-        
-
         packed_input = pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=False)
         packed_output, (ht, ct) = self.lstm(packed_input)
         lstm_out, input_sizes = pad_packed_sequence(packed_output, batch_first=True)
-        lstm_out = self.linear(lstm_out)
-        lstm_out = self.relu(lstm_out)
         lstm_out = self.bnorm(lstm_out.transpose(1, 2)).transpose(1, 2)
         if self.skip:
             lstm_out = lstm_out + x  # skip connections
@@ -78,6 +75,34 @@ class Lstm_with_skip(nn.Module):
 
         # assert torch.equal(input_sizes, lengths.cpu())
         return lstm_out
+
+
+class Ffn(nn.Module):
+    def __init__(self, input_dim, hidden_dim, out_dim, nlayers=1, drop_out=0.1, skip=False) -> None:
+        super().__init__()
+
+        layers = []
+        for ilayer in range(nlayers):
+            _in = hidden_dim if ilayer > 0 else input_dim
+            _out = hidden_dim if ilayer < nlayers - 1 else out_dim
+            layers.extend([
+                nn.Linear(_in, _out),
+                nn.ReLU(),
+                nn.Dropout(p=drop_out),
+            ])
+        self.ffn = torch.nn.Sequential(
+            *layers,
+        )
+
+        self.skip = skip
+    
+    def forward(self, x) -> torch.Tensor:
+        x_out = self.ffn(x)
+        
+        if self.skip:
+            x_out = x_out + x
+
+        return x_out
 
 
 class TdnnBlstm(nn.Module):
@@ -132,6 +157,19 @@ class TdnnBlstm(nn.Module):
                     )
                 )
                 layers_info.append(("blstm", None))
+            
+            elif spec[0] == "ffn":
+                layers.append(
+                    Ffn(
+                        input_dim=input_dim if len(layers) == 0 else hidden_dim, 
+                        hidden_dim=hidden_dim,
+                        out_dim=hidden_dim,
+                        skip=True,
+                        drop_out=drop_out,
+                        nlayers=spec[1],
+                    )
+                )
+                layers_info.append(("ffn", spec))
         
         self.layers = layers
         self.layers_info = layers_info
@@ -164,4 +202,6 @@ class TdnnBlstm(nn.Module):
                     lengths = torch.floor(lengths)
             elif layer_type == "blstm":
                 x = layer(x, lengths)
+            else:
+                x = layer(x)
         return x, lengths

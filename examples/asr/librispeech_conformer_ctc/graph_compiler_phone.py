@@ -16,6 +16,7 @@ class PhonemeCtcTrainingGraphCompiler(object):
         index_offset=1,  # for torchaudio's non-zero blank id
         sil_penalty_intra_word=0,
         sil_penalty_inter_word=0,
+        aux_offset=0,
     ) -> None:
         """
         Args:
@@ -51,9 +52,10 @@ class PhonemeCtcTrainingGraphCompiler(object):
             topo_type=topo_type, 
             sil_penalty_intra_word=sil_penalty_intra_word,
             sil_penalty_inter_word=sil_penalty_inter_word,
+            aux_offset=aux_offset,
         )
 
-    def make_lexicon_fst(self, lexicon=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0):
+    def make_lexicon_fst(self, lexicon=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, aux_offset=0):
         lexicon_fst = dict()
         if lexicon is None:
             lexicon = self.sp.lexicon
@@ -69,6 +71,7 @@ class PhonemeCtcTrainingGraphCompiler(object):
                 blank_id=0,
                 sil_penalty_intra_word=sil_penalty_intra_word,
                 sil_penalty_inter_word=sil_penalty_inter_word,
+                aux_offset=aux_offset,
             )
             lexicon_fst[w] = (res, next_index)
         return lexicon_fst

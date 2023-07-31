@@ -4,15 +4,16 @@ import logging
 from tqdm import tqdm
 
 class PhonemeTokenizerBoundary:
-    def __init__(self):
+    def __init__(self, has_boundary=True):
         lexicon, token2id = read_lexicon(
-            "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
-            has_boundary=True,
+            # "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
+            "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
+            has_boundary=has_boundary,
         )
         try:
             lexicon_new_words, _ = read_lexicon(
                 "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
-                has_boundary=True,
+                has_boundary=has_boundary,
             )
             lexicon.update(lexicon_new_words)
         except:
@@ -27,7 +28,11 @@ class PhonemeTokenizerBoundary:
         self.id2token = {v: k for k, v in self.token2id.items()}
 
         self.blank_id = self.token2id["-"]
-        self.unk_id = self.token2id["▁spn"]
+
+        if has_boundary:
+            self.unk_id = self.token2id["▁spn"]
+        else:
+            self.unk_id = self.token2id["spn"]
     
     def fstr(self, template, x):
         return fstr(template, x)

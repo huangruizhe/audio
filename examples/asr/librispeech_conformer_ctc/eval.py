@@ -41,8 +41,11 @@ def run_eval(args, config):
     elif config["model_unit"] == "char_boundary":
         sp_model = CharTokenizerBoundary()
         blank_id = None
+    elif config["model_unit"] == "phoneme":
+        sp_model = PhonemeTokenizerBoundary(has_boundary=False)
+        blank_id = sp_model.blank_id
     elif config["model_unit"] == "phoneme_boundary":
-        sp_model = PhonemeTokenizerBoundary()
+        sp_model = PhonemeTokenizerBoundary(has_boundary=True)
         blank_id = sp_model.blank_id
     else:
         raise NotImplementedError
