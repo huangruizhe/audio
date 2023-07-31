@@ -116,7 +116,7 @@ class TrieNode:
         self.state_id = None
         self.weight = -1e9
         self.children = {}
-        self.need_blk = False  # True if a mandatory blank is needed between this token and its parent
+        self.mandatory_blk = False  # True if a mandatory blank is needed between this token and its parent
 
 
 class Trie(object):
@@ -125,13 +125,13 @@ class Trie(object):
     def __init__(self):
         self.root = TrieNode("")
     
-    def insert(self, word_tokens, weight=1.0):
+    def insert(self, word_tokens, weight=1.0, prev_token=None):
         """Insert a word into the trie"""
         node = self.root
         
         # Loop through each token in the word
         # Check if there is no child containing the token, create a new child for the current node
-        prev_token = None
+        # prev_token = None
         for token in word_tokens:
             if token in node.children:
                 node = node.children[token]
@@ -145,7 +145,7 @@ class Trie(object):
                 node.weight = weight
             
             if token == prev_token:
-                node.need_blk = True
+                node.mandatory_blk = True
             prev_token = token
         
         # Mark the end of a word
@@ -203,7 +203,8 @@ class Trie(object):
             
         return res, next_index, last_index
     
-    def to_k2_str_topo(self, node=None, start_index=0, last_index=-1, token2id=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, blank_id = 0, aux_offset=0):
+    def to_k2_str_topo(self, node=None, start_index=0, last_index=-1, token2id=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, blank_id = 0, aux_offset=0, mandatory_blk=False):
+        # TODO: simplify/unify making hmm and ctc decoding graphs
         if node is None:
             node = self.root
 
@@ -268,7 +269,8 @@ class Trie(object):
                             res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {blank_state_index}}} {blank_id} {blank_id} {-sil_penalty_intra_word}"))
                     _aux_offset = aux_offset if node == self.root else 0
                     res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
-                    res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
+                    if not c.mandatory_blk:
+                        res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
                     _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=blank_id)
                     next_index = _next_index
@@ -287,8 +289,9 @@ class Trie(object):
                     _aux_offset = aux_offset if node == self.root else 0
                     res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token + _aux_offset} {weight}"))
                     res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
-                    res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token + _aux_offset} {weight}"))
-                    res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
+                    if not c.mandatory_blk:
+                        res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token + _aux_offset} {weight}"))
+                        res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} 0"))
                     next_index += 1
@@ -411,12 +414,12 @@ def test3():
         pass
     token2id["-"] = len(token2id)
 
-    sil_penalty_intra_word = 0
-    sil_penalty_inter_word = 0
+    sil_penalty_intra_word = 0.1
+    sil_penalty_inter_word = 0.5
     topo_type = "ctc"
 
     text = "pen pineapple apple pen"
-    text = "THAT THE HEBREWS WERE RESTIVE UNDER THIS TYRANNY WAS NATURAL INEVITABLE"
+    # text = "THAT THE HEBREWS WERE RESTIVE UNDER THIS TYRANNY WAS NATURAL INEVITABLE"
     
     _lexicon = dict()
     for w in text.strip().lower().split():
