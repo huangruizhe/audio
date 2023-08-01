@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import List, Union
 from collections import defaultdict
 from lexicon import read_lexicon, Trie, fstr
+import string
 
 import k2
 import torch
@@ -98,7 +99,14 @@ class PhonemeCtcTrainingGraphCompiler(object):
         sentence = sentence.strip().lower().split()
         
         for word in sentence:
-            res, _next_index = self.lexicon_fst[word]
+            try:
+                res, _next_index = self.lexicon_fst[word]
+            except:
+                word_ = word.translate(str.maketrans('', '', string.punctuation))
+                if word_ in self.lexicon_fst:
+                    res, _next_index = self.lexicon_fst[word_]
+                else:
+                    assert word in self.lexicon_fst, f"{word} does not have lexicon entry"
             fsa_str += "\n"
             fsa_str += self.sp.fstr("\n".join(res), x = next_index)
             next_index += _next_index

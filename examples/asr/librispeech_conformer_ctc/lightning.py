@@ -15,7 +15,7 @@ from loss import MaximumLikelihoodLoss
 from graph_compiler_bpe import BpeCtcTrainingGraphCompiler
 from graph_compiler_char import CharCtcTrainingGraphCompiler
 from graph_compiler_phone import PhonemeCtcTrainingGraphCompiler
-from ali import ali_postprocessing_single
+from ali import ali_postprocessing_single, frames_postprocessing_single
 
 
 logger = logging.getLogger()
@@ -178,6 +178,8 @@ class ConformerCTCModule(LightningModule):
         self.config = config
         # self.mode = "train"
         self.mode = "align"
+        self.scratch_space = {}
+        self.aux_offset = 100000
 
         # ``conformer_rnnt_base`` hardcodes a specific Conformer RNN-T configuration.
         # For greater customizability, please refer to ``conformer_rnnt_model``.
@@ -285,7 +287,6 @@ class ConformerCTCModule(LightningModule):
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
         elif self.config["model_unit"] == "phoneme" or self.config["model_unit"] == "phoneme_boundary":
-            aux_offset = 100000
             graph_compiler = PhonemeCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),
@@ -293,7 +294,7 @@ class ConformerCTCModule(LightningModule):
                 index_offset=1,
                 sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
                 sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
-                aux_offset=aux_offset,
+                aux_offset=self.aux_offset,
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
 
@@ -386,13 +387,16 @@ class ConformerCTCModule(LightningModule):
             labels_ali, aux_labels_ali, log_probs = \
                 self.loss.align(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
             
-            ali_results = []
+            if "ali" not in self.scratch_space:
+                self.scratch_space["ali"] = list()
             for i, (ali, aux_ali) in enumerate(zip(labels_ali, aux_labels_ali)):
-                tokens, token_ids, frame_alignment, frame_scores, frames = \
-                    ali_postprocessing_single(ali, aux_ali, self.sp_model, log_probs[i][:src_lengths[i].int().item()])
-                ali_results.append((batch.samples[i][1:], tokens, token_ids, frame_alignment, frame_scores, frames))
-            import pdb; pdb.set_trace()
-            return 0
+                tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames = \
+                    ali_postprocessing_single(ali, aux_ali, self.sp_model, log_probs[i][:src_lengths[i].int().item()], aux_offset=self.aux_offset)
+                utter_id, rs = \
+                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, self.config["model_unit"], batch.samples[i][1:], self.sp_model)
+                
+                self.scratch_space["ali"].append((utter_id, rs))
+            return None
         else:
             raise NotImplementedError    
 

@@ -10,12 +10,30 @@ class PhonemeTokenizerBoundary:
             "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
             has_boundary=has_boundary,
         )
+
         try:
             lexicon_new_words, _ = read_lexicon(
                 "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
                 has_boundary=has_boundary,
+                quiet=True,
             )
-            lexicon.update(lexicon_new_words)
+            # lexicon.update(lexicon_new_words)
+            for w in lexicon_new_words.keys():
+                if w not in lexicon:
+                    lexicon[w] = lexicon_new_words[w]
+        except:
+            pass
+
+        try:
+            lexicon_new_words, _ = read_lexicon(
+                "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
+                has_boundary=has_boundary,
+                quiet=True,
+            )
+            # lexicon.update(lexicon_new_words)
+            for w in lexicon_new_words.keys():
+                if w not in lexicon:
+                    lexicon[w] = lexicon_new_words[w]
         except:
             pass
 

@@ -8,7 +8,7 @@ import math
 import subprocess
 
 
-def read_lexicon(filename: str, has_boundary=False):
+def read_lexicon(filename: str, has_boundary=False, quiet=False):
     """Read a lexicon from `filename`.
 
     Each line in the lexicon contains "word p1 p2 p3 ...".
@@ -75,14 +75,15 @@ def read_lexicon(filename: str, has_boundary=False):
         for entry in pron_list:
             entry[0] /= total 
 
-    total_entries = sum([len(v) for k, v in ans.items()])
-    # logging.info(f"Number of words in dict: {len(ans)}")
-    # logging.info(f"Number of tokens in dict: {len(token2id)}")
-    # logging.info(f"Average number of pronunciations per word: {total_entries/len(ans):.2f}")
-    print(f"Number of words in dict: {len(ans)}")
-    print(f"Number of tokens in dict: {len(token2id)}")
-    print(f"Average number of pronunciations per word: {total_entries/len(ans):.2f}")
-    print(f"Tokens: {list(token2id.keys())}")
+    if not quiet:
+        total_entries = sum([len(v) for k, v in ans.items()])
+        # logging.info(f"Number of words in dict: {len(ans)}")
+        # logging.info(f"Number of tokens in dict: {len(token2id)}")
+        # logging.info(f"Average number of pronunciations per word: {total_entries/len(ans):.2f}")
+        print(f"Number of words in dict: {len(ans)}")
+        print(f"Number of tokens in dict: {len(token2id)}")
+        print(f"Average number of pronunciations per word: {total_entries/len(ans):.2f}")
+        print(f"Tokens: {list(token2id.keys())}")
 
     return ans, token2id
 
@@ -339,17 +340,36 @@ def test1():
 def test2():
     # get pronunciation graph
 
+    has_boundary = False
     lexicon, token2id = read_lexicon(
         # "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
         "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
-        has_boundary=True,
+        has_boundary=has_boundary,
     )
+
     try:
         lexicon_new_words, _ = read_lexicon(
             "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
-            has_boundary=True,
+            has_boundary=has_boundary,
+            quiet=True,
         )
-        lexicon.update(lexicon_new_words)
+        # lexicon.update(lexicon_new_words)
+        for w in lexicon_new_words.keys():
+            if w not in lexicon:
+                lexicon[w] = lexicon_new_words[w]
+    except:
+        pass
+
+    try:
+        lexicon_new_words, _ = read_lexicon(
+            "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
+            has_boundary=has_boundary,
+            quiet=True,
+        )
+        # lexicon.update(lexicon_new_words)
+        for w in lexicon_new_words.keys():
+            if w not in lexicon:
+                lexicon[w] = lexicon_new_words[w]
     except:
         pass
 
@@ -399,27 +419,51 @@ def test2():
 
 
 def test3():
+    has_boundary = False
     lexicon, token2id = read_lexicon(
         # "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
         "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
-        has_boundary=True,
+        has_boundary=has_boundary,
     )
+
     try:
         lexicon_new_words, _ = read_lexicon(
             "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
-            has_boundary=True,
+            has_boundary=has_boundary,
+            quiet=True,
         )
-        lexicon.update(lexicon_new_words)
+        # lexicon.update(lexicon_new_words)
+        for w in lexicon_new_words.keys():
+            if w not in lexicon:
+                lexicon[w] = lexicon_new_words[w]
+    except:
+        pass
+
+    try:
+        lexicon_new_words, _ = read_lexicon(
+            "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
+            has_boundary=has_boundary,
+            quiet=True,
+        )
+        # lexicon.update(lexicon_new_words)
+        for w in lexicon_new_words.keys():
+            if w not in lexicon:
+                lexicon[w] = lexicon_new_words[w]
     except:
         pass
     token2id["-"] = len(token2id)
+
+    aux_offset = 1000000
+    for k, v in list(token2id.items()):
+        token2id[f"▁{k}"] = v + aux_offset
 
     sil_penalty_intra_word = 0.1
     sil_penalty_inter_word = 0.5
     topo_type = "ctc"
 
-    text = "pen pineapple apple pen"
+    # text = "pen pineapple apple pen"
     # text = "THAT THE HEBREWS WERE RESTIVE UNDER THIS TYRANNY WAS NATURAL INEVITABLE"
+    text = "boy they'd pay for my high school my college and everything yknow even living expenses yknow but because i have a bachelors"
     
     _lexicon = dict()
     for w in text.strip().lower().split():
@@ -427,7 +471,7 @@ def test3():
         for prob, tokens in lexicon[w]:
             trie.insert(tokens, weight=prob)
         
-        res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=token2id["-"])
+        res, next_index, last_index = trie.to_k2_str_topo(token2id=token2id, index_offset=0, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=token2id["-"], aux_offset=aux_offset)
         _lexicon[w] = (res, next_index)
 
     fsa_str = ""

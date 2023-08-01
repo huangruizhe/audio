@@ -14,6 +14,7 @@ from buckeye_transforms import get_data_module
 
 from config import load_config, update_config, save_config
 import logging
+import torch
 
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
@@ -44,6 +45,22 @@ class MyTrainStartCallback(Callback):
             save_config(pl_module.config, config_file)
 
 
+class MyTrainEpochEndCallback(Callback):
+    # https://lightning.ai/docs/pytorch/stable/deploy/production_basic.html
+    # https://lightning.ai/docs/pytorch/stable/extensions/callbacks.html#on-train-epoch-end
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if pl_module.mode != "align":
+            return
+        
+        logging.info(f"Saving alignment results for worker {pl_module.global_rank} ...")
+
+        ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali"
+        ali_dir.mkdir(parents=True, exist_ok=True)
+        model_name = pathlib.Path(pl_module.config["training_config"]["checkpoint_path"]).stem
+        torch.save(pl_module.scratch_space["ali"], ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pt")
+
+
 def run_train(args, config):
     seed_everything(1)
     checkpoint_dir = pathlib.Path(config["training_config"]["exp_dir"]) / "checkpoints"
@@ -65,13 +82,22 @@ def run_train(args, config):
         every_n_epochs=10,
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    callbacks = [
-        checkpoint,
-        train_checkpoint,
-        lr_monitor,
-        MyFitStartCallback(),
-        MyTrainStartCallback(),
-    ]
+
+    if args.mode == "train":
+        callbacks = [
+            checkpoint,
+            train_checkpoint,
+            lr_monitor,
+            MyFitStartCallback(),
+            MyTrainStartCallback(),
+        ]
+    elif args.mode == "align":
+        callbacks = [
+            MyFitStartCallback(),
+            MyTrainStartCallback(),
+            MyTrainEpochEndCallback(),
+        ]
+
     trainer = Trainer(
         default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
         max_epochs=config["training_config"]["epochs"],
@@ -101,7 +127,7 @@ def run_train(args, config):
     if trainer.global_rank == 0:
         print(f"Model: \n{model}")
     data_module = get_data_module(str(args.buckeye_path), str(args.global_stats_path), sp_model, config)
-    data_module.mode = "align"
+    data_module.mode = args.mode
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
 
@@ -160,6 +186,12 @@ def cli_main():
         default=None,
         type=pathlib.Path,
         help="Path to config file.",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        help="align or train",
+        default="align"
     )
     args = parser.parse_args()
 
