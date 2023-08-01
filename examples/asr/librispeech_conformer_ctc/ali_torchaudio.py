@@ -347,7 +347,7 @@ class Aligner:
         decoding_graph = self.graph_compiler.compile(token_ids, samples)
 
         # import pdb; pdb.set_trace()
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
 
         dense_fsa_vec = k2.DenseFsaVec(
             emission,

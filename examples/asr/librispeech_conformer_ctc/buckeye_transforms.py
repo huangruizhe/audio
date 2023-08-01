@@ -181,7 +181,8 @@ class TestTransform:
 
     def __call__(self, sample):
         # return self.val_transforms([sample]), [sample]
-        return self.val_transforms(sample), sample
+        # return self.val_transforms(sample), sample
+        return self.val_transforms(sample)
 
 
 def get_data_module(buckeye_path, global_stats_path, sp_model, config):

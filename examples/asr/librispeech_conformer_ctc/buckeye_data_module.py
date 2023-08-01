@@ -116,7 +116,7 @@ class BuckeyeDataModule(LightningDataModule):
         self.train_shuffle = train_shuffle
         self.num_workers = num_workers
 
-    def dataloader(self):
+    def train_dataloader(self):
         datasets = [BUCKEYE(self.buckeye_path)]
 
         if not self.dataset_lengths:
@@ -144,6 +144,9 @@ class BuckeyeDataModule(LightningDataModule):
         )
         return dataloader
 
+    def val_dataloader(self):
+        return self.train_dataloader()
+    
     # def val_dataloader(self):
     #     datasets = [
     #         self.librispeech_cls(self.librispeech_path, url="dev-clean"),

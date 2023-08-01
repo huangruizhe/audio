@@ -15,6 +15,7 @@ from loss import MaximumLikelihoodLoss
 from graph_compiler_bpe import BpeCtcTrainingGraphCompiler
 from graph_compiler_char import CharCtcTrainingGraphCompiler
 from graph_compiler_phone import PhonemeCtcTrainingGraphCompiler
+from ali import ali_postprocessing_single
 
 
 logger = logging.getLogger()
@@ -175,6 +176,8 @@ class ConformerCTCModule(LightningModule):
             self.blank_idx = blank_idx
 
         self.config = config
+        # self.mode = "train"
+        self.mode = "align"
 
         # ``conformer_rnnt_base`` hardcodes a specific Conformer RNN-T configuration.
         # For greater customizability, please refer to ``conformer_rnnt_model``.
@@ -282,6 +285,7 @@ class ConformerCTCModule(LightningModule):
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
         elif self.config["model_unit"] == "phoneme" or self.config["model_unit"] == "phoneme_boundary":
+            aux_offset = 100000
             graph_compiler = PhonemeCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),
@@ -289,6 +293,7 @@ class ConformerCTCModule(LightningModule):
                 index_offset=1,
                 sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
                 sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
+                aux_offset=aux_offset,
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
 
@@ -356,24 +361,48 @@ class ConformerCTCModule(LightningModule):
         Doing so allows us to account for the variability in batch sizes that
         variable-length sequential data yield.
         """
-        try:
-            loss = self._step(batch, batch_idx, "train")
-        except:
-            loss = 0
-            for model_param_name, model_param_value in self.model.named_parameters():  # encoder_output_layer.
-                    # if model_param_name.endswith('weight'):
-                    #     loss += model_param_value.abs().sum()
-                    loss += model_param_value.abs().sum()
-            loss = loss * 1e-5
-            logger.info(f"[{self.global_rank}] batch {batch_idx} is bad")
-        batch_size = batch.features.size(0)
-        batch_sizes = self.all_gather(batch_size)
-        self.log("Gathered batch size", batch_sizes.sum(), on_step=True, on_epoch=True, batch_size=batch_size)
-        loss *= batch_sizes.size(0) / batch_sizes.sum()  # world size / batch size
-        return loss
+        if self.mode == "train":
+            try:
+                loss = self._step(batch, batch_idx, "train")
+            except:
+                loss = 0
+                for model_param_name, model_param_value in self.model.named_parameters():  # encoder_output_layer.
+                        # if model_param_name.endswith('weight'):
+                        #     loss += model_param_value.abs().sum()
+                        loss += model_param_value.abs().sum()
+                loss = loss * 1e-5
+                logger.info(f"[{self.global_rank}] batch {batch_idx} is bad")
+            batch_size = batch.features.size(0)
+            batch_sizes = self.all_gather(batch_size)
+            self.log("Gathered batch size", batch_sizes.sum(), on_step=True, on_epoch=True, batch_size=batch_size)
+            loss *= batch_sizes.size(0) / batch_sizes.sum()  # world size / batch size
+            return loss
+        elif self.mode == "align":
+            # import pdb; pdb.set_trace()
+            output, src_lengths = self.model(
+                batch.features,
+                batch.feature_lengths,
+            )
+            labels_ali, aux_labels_ali, log_probs = \
+                self.loss.align(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+            
+            ali_results = []
+            for i, (ali, aux_ali) in enumerate(zip(labels_ali, aux_labels_ali)):
+                tokens, token_ids, frame_alignment, frame_scores, frames = \
+                    ali_postprocessing_single(ali, aux_ali, self.sp_model, log_probs[i][:src_lengths[i].int().item()])
+                ali_results.append((batch.samples[i][1:], tokens, token_ids, frame_alignment, frame_scores, frames))
+            import pdb; pdb.set_trace()
+            return 0
+        else:
+            raise NotImplementedError    
 
     def validation_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, "val")
+        if self.mode == "train":
+            return self._step(batch, batch_idx, "val")
+        elif self.mode == "align":
+            return 0
+        else:
+            raise NotImplementedError
 
     def test_step(self, batch, batch_idx):
         return self._step(batch, batch_idx, "test")

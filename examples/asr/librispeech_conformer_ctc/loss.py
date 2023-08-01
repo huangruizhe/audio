@@ -7,6 +7,12 @@ from graph_compiler_bpe import BpeCtcTrainingGraphCompiler
 from graph_compiler_char import CharCtcTrainingGraphCompiler
 from graph_compiler_phone import PhonemeCtcTrainingGraphCompiler
 
+import sys
+sys.path.insert(0,'/fsx/users/huangruizhe/icefall_align2')
+sys.path.insert(0,'/fsx/users/huangruizhe/icefall_align2/egs/librispeech/ASR/zipformer_mmi')
+from icefall.decode import one_best_decoding
+from icefall.utils import get_alignments
+
 
 class MaximumLikelihoodLoss(nn.Module):
     """
@@ -107,3 +113,52 @@ class MaximumLikelihoodLoss(nn.Module):
         )
         return loss
     
+    def align(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None) -> Tensor:
+        # Be careful: the targets here are already padded! We need to remove paddings from it
+        supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, input_lengths)
+        token_ids = texts
+
+        # import pdb; pdb.set_trace()
+        
+        if type(self.graph_compiler) is BpeCtcTrainingGraphCompiler:
+            decoding_graph = self.graph_compiler.compile(token_ids)
+        elif type(self.graph_compiler) is CharCtcTrainingGraphCompiler:
+            _samples = [samples[i] for i in indices.tolist()]
+            decoding_graph = self.graph_compiler.compile(token_ids, _samples)
+        elif type(self.graph_compiler) is PhonemeCtcTrainingGraphCompiler:
+            _samples = [samples[i] for i in indices.tolist()]
+            decoding_graph = self.graph_compiler.compile(token_ids, _samples)
+        else:
+            raise NotImplementedError
+
+        log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
+        log_probs = torch.roll(log_probs, 1, -1)  # Now blank symbol has the index of 0
+
+        dense_fsa_vec = k2.DenseFsaVec(
+            log_probs,
+            supervision_segments,
+            allow_truncate=self.subsampling_factor - 1,
+        )
+
+        output_beam = 10  # https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/conformer_ctc/ali.py
+        lattice = k2.intersect_dense(
+            decoding_graph,
+            dense_fsa_vec,
+            output_beam,
+        )
+
+        best_path = one_best_decoding(
+            lattice=lattice,
+            use_double_scores=True,
+        )
+
+        labels_ali_ = get_alignments(best_path, kind="labels")
+        aux_labels_ali_ = get_alignments(best_path, kind="aux_labels")
+        
+        labels_ali = [None] * len(labels_ali_)
+        aux_labels_ali = [None] * len(aux_labels_ali_)
+        for i, ali_, aux_ali_ in zip(indices.tolist(), labels_ali_, aux_labels_ali_):
+            labels_ali[i] = ali_
+            aux_labels_ali[i] = aux_ali_
+
+        return labels_ali, aux_labels_ali, log_probs
