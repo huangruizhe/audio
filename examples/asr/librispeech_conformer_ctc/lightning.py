@@ -393,12 +393,12 @@ class ConformerCTCModule(LightningModule):
                 tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames = \
                     ali_postprocessing_single(ali, aux_ali, self.sp_model, log_probs[i][:src_lengths[i].int().item()], aux_offset=self.aux_offset)
                 utter_id, rs = \
-                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, self.config["model_unit"], batch.samples[i][1:], self.sp_model)
+                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, self.config["model_unit"], batch.samples[i][1:], self.sp_model, self.config["subsampling_factor"] * 0.01)
                 
                 self.scratch_space["ali"].append((utter_id, rs))
             return None
         else:
-            raise NotImplementedError    
+            raise NotImplementedError
 
     def validation_step(self, batch, batch_idx):
         if self.mode == "train":

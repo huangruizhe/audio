@@ -101,8 +101,9 @@ def ali_postprocessing_single(labels_ali, aux_labels_ali, sp_model, emission, au
     token_ids = token_ids_aux
     tokens = [sp_model.id_to_piece(i) for i in token_ids]
 
-    if frames[-1].token_index >= len(tokens):  # or tuple(token_ids[:3]) == (34, 71, 83)
-        import pdb; pdb.set_trace()
+    assert frames[-1].token_index == len(tokens) - 1
+    # if frames[-1].token_index >= len(tokens):  # or tuple(token_ids[:3]) == (34, 71, 83)
+    #     import pdb; pdb.set_trace()
 
     return tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames
 
@@ -174,8 +175,8 @@ def merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset=
             token_ids_aux.append(i)
         i_prev = i
 
-    if len(segments) != len(tokens):
-        import pdb; pdb.set_trace()
+    # if len(segments) != len(tokens):
+    #     import pdb; pdb.set_trace()
 
     assert len(segments) == len(tokens), f"{len(segments)} vs. {len(tokens)}"
     assert len(segments) == len(token_ids_aux), f"{len(segments)} vs. {len(token_ids_aux)}"
@@ -193,7 +194,7 @@ def merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset=
     return words
 
 
-def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, token_type, utt_info, sp_model):
+def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, token_type, utt_info, sp_model, frame_dur):
     segments = merge_repeats(frames, tokens, token_ids)
     # for seg in segments:
     #     print(seg)
@@ -206,19 +207,19 @@ def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_align
     time_start = -1
     time_end = -1
 
-    words_text = "\t".join([f"{x.label}" for x in word_segments])
-    word_times_start = "\t".join([f"{x.start * 0.04:.2f}" for x in word_segments])
-    word_times_end = "\t".join([f"{x.end * 0.04:.2f}" for x in word_segments])
+    words_text = [f"{x.label}" for x in word_segments]
+    word_times_start = [x.start * frame_dur for x in word_segments]
+    word_times_end = [x.end * frame_dur for x in word_segments]
 
-    phones_text = "\t".join([f"{x.label}" for x in segments])
-    phones_beg_time = "\t".join([f"{x.start * 0.04:.2f}" for x in segments])
-    phones_end_time = "\t".join([f"{x.end * 0.04:.2f}" for x in segments])
+    phones_text = [f"{x.label}" for x in segments]
+    phones_beg_time = [x.start * frame_dur for x in segments]
+    phones_end_time = [x.end * frame_dur for x in segments]
 
     sample_rate, text, speaker_id, utter_id, wav_path = utt_info
 
-    if len(words_text.split()) != len(text.split()):
-        import pdb; pdb.set_trace()
+    # if len(words_text.split()) != len(text.split()):
+    #     import pdb; pdb.set_trace()
 
-    assert len(words_text.split()) == len(text.split())
+    assert len(words_text) == len(text.split())
 
     return utter_id, (time_start, time_end, words_text, word_times_start, word_times_end, phones_text, phones_beg_time, phones_end_time)

@@ -14,7 +14,7 @@ from buckeye_transforms import get_data_module
 
 from config import load_config, update_config, save_config
 import logging
-import torch
+import pickle
 
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
@@ -58,7 +58,9 @@ class MyTrainEpochEndCallback(Callback):
         ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali"
         ali_dir.mkdir(parents=True, exist_ok=True)
         model_name = pathlib.Path(pl_module.config["training_config"]["checkpoint_path"]).stem
-        torch.save(pl_module.scratch_space["ali"], ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pt")
+        # torch.save(pl_module.scratch_space["ali"], ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pt")
+        with open(ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pkl", 'wb') as file:
+            pickle.dump(pl_module.scratch_space["ali"], file)
 
 
 def run_train(args, config):
