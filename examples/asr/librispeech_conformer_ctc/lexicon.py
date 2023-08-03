@@ -33,9 +33,11 @@ def read_lexicon(filename: str, has_boundary=False, quiet=False):
     with open(filename, "r", encoding="utf-8") as fin:
         # whitespace = re.compile("[ \t]+")
         for line in fin:
-            a = line.strip().split("\t")
+            a = line.strip()
+            # a = line.strip().split()
             if len(a) == 0:
                 continue
+            a = a.split("\t")
 
             if len(a) != 2 and len(a) != 6:
                 logging.info(f"Found bad line {line} in lexicon file {filename}")

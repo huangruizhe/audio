@@ -176,8 +176,8 @@ class ConformerCTCModule(LightningModule):
             self.blank_idx = blank_idx
 
         self.config = config
-        # self.mode = "train"
-        self.mode = "align"
+        self.mode = "train"
+        # self.mode = "align"
         self.scratch_space = {}
         self.aux_offset = 100000
 
@@ -379,7 +379,8 @@ class ConformerCTCModule(LightningModule):
             loss *= batch_sizes.size(0) / batch_sizes.sum()  # world size / batch size
             return loss
         elif self.mode == "align":
-            # import pdb; pdb.set_trace()
+            # if batch_idx == 5:
+            #     import pdb; pdb.set_trace()
             output, src_lengths = self.model(
                 batch.features,
                 batch.feature_lengths,
@@ -390,11 +391,20 @@ class ConformerCTCModule(LightningModule):
             if "ali" not in self.scratch_space:
                 self.scratch_space["ali"] = list()
             for i, (ali, aux_ali) in enumerate(zip(labels_ali, aux_labels_ali)):
+                log_prob = log_probs[i][:src_lengths[i].int().item()]
+                utt_info = batch.samples[i][1:]
+                model_unit = self.config["model_unit"]
+                frame_dur = self.config["subsampling_factor"] * 0.01
+
                 tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames = \
-                    ali_postprocessing_single(ali, aux_ali, self.sp_model, log_probs[i][:src_lengths[i].int().item()], aux_offset=self.aux_offset)
-                utter_id, rs = \
-                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, self.config["model_unit"], batch.samples[i][1:], self.sp_model, self.config["subsampling_factor"] * 0.01)
+                    ali_postprocessing_single(ali, aux_ali, self.sp_model, log_prob, aux_offset=self.aux_offset)
                 
+                utter_id, rs = \
+                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, model_unit, utt_info, self.sp_model, frame_dur)
+                
+                # if utt_info[3] == "s1301a-25":
+                #     import pdb; pdb.set_trace()
+
                 self.scratch_space["ali"].append((utter_id, rs))
             return None
         else:

@@ -185,7 +185,7 @@ class TestTransform:
         return self.val_transforms(sample)
 
 
-def get_data_module(buckeye_path, global_stats_path, sp_model, config):
+def get_data_module(buckeye_path, global_stats_path, sp_model, config, train_shuffle=True):
     if config["musan_noise"]:
         subsets = config["musan_noise"]["subsets"]
         musan = Musan(musan_path, subsets)
@@ -201,4 +201,5 @@ def get_data_module(buckeye_path, global_stats_path, sp_model, config):
         batch_size=config["optim_config"]["batch_size"],
         max_tokens=config["optim_config"]["max_tokens"],
         num_buckets=config["optim_config"]["train_num_buckets"],
+        train_shuffle=train_shuffle,
     )

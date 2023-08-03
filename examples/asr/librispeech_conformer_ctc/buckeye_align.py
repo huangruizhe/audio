@@ -53,7 +53,7 @@ class MyTrainEpochEndCallback(Callback):
         if pl_module.mode != "align":
             return
         
-        logging.info(f"Saving alignment results for worker {pl_module.global_rank} ...")
+        print(f"\nSaving alignment results for worker {pl_module.global_rank} ...\n")
 
         ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali"
         ali_dir.mkdir(parents=True, exist_ok=True)
@@ -100,9 +100,13 @@ def run_train(args, config):
             MyTrainEpochEndCallback(),
         ]
 
+    checkpoint_epoch = str(config["training_config"]["checkpoint_path"].stem)
+    checkpoint_epoch = int(checkpoint_epoch[6: checkpoint_epoch.find("-")])
+    assert checkpoint_epoch < config["training_config"]["epochs"]
+
     trainer = Trainer(
         default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
-        max_epochs=config["training_config"]["epochs"],
+        max_epochs=checkpoint_epoch + 2 if args.mode == "align" else config["training_config"]["epochs"],
         num_nodes=config["training_config"]["nodes"],
         devices=config["training_config"]["gpus"],
         accelerator="gpu",
@@ -112,6 +116,10 @@ def run_train(args, config):
         gradient_clip_val=config["training_config"]["gradient_clip_val"],
         # accumulate_grad_batches=3,
         # limit_train_batches=10,
+
+        # align:
+        limit_val_batches=0,
+        num_sanity_val_steps=0
     )
 
     if config["model_unit"] == "bpe":
@@ -125,11 +133,11 @@ def run_train(args, config):
     elif config["model_unit"] == "phoneme_boundary":
         sp_model = PhonemeTokenizerBoundary(has_boundary=True)
     model = ConformerCTCModule(sp_model, config)
+    model.mode = args.mode
     
     if trainer.global_rank == 0:
         print(f"Model: \n{model}")
-    data_module = get_data_module(str(args.buckeye_path), str(args.global_stats_path), sp_model, config)
-    data_module.mode = args.mode
+    data_module = get_data_module(str(args.buckeye_path), str(args.global_stats_path), sp_model, config, train_shuffle=(model.mode!="align"))
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
 

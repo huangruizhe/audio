@@ -130,7 +130,7 @@ class BuckeyeDataModule(LightningDataModule):
                     self.max_tokens,
                     self.num_buckets,
                     batch_size=self.batch_size,
-                    shuffle=True,
+                    shuffle=False,
                 )
                 for dataset, lengths in zip(datasets, self.dataset_lengths)
             ]

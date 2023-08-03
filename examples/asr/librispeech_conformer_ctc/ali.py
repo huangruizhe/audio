@@ -91,19 +91,19 @@ def ali_postprocessing_single(labels_ali, aux_labels_ali, sp_model, emission, au
 
     # indices_aux = torch.unique_consecutive(frame_alignment_aux, dim=-1).tolist()
     indices_aux = remove_consecutive_duplicates(frame_alignment_aux, aux_offset=aux_offset)
-    indices_aux = [i for i in indices_aux if i != sp_model.blank_id]
     token_ids_aux = []
     i_prev = -1
     for i in indices_aux:
         if i + aux_offset != i_prev:
             token_ids_aux.append(i if i < aux_offset else i - aux_offset)
         i_prev = i
+    token_ids_aux = [i for i in token_ids_aux if i != sp_model.blank_id]
     token_ids = token_ids_aux
     tokens = [sp_model.id_to_piece(i) for i in token_ids]
 
-    assert frames[-1].token_index == len(tokens) - 1
     # if frames[-1].token_index >= len(tokens):  # or tuple(token_ids[:3]) == (34, 71, 83)
     #     import pdb; pdb.set_trace()
+    assert frames[-1].token_index == len(tokens) - 1
 
     return tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames
 
@@ -167,13 +167,13 @@ def merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset=
     words = []
 
     indices_aux = remove_consecutive_duplicates(frame_alignment_aux, aux_offset=aux_offset)
-    indices_aux = [i for i in indices_aux if i != sp_model.blank_id]
     token_ids_aux = []
     i_prev = -1
     for i in indices_aux:
         if i + aux_offset != i_prev:
             token_ids_aux.append(i)
         i_prev = i
+    token_ids_aux = [i for i in token_ids_aux if i != sp_model.blank_id]
 
     # if len(segments) != len(tokens):
     #     import pdb; pdb.set_trace()
@@ -223,3 +223,53 @@ def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_align
     assert len(words_text) == len(text.split())
 
     return utter_id, (time_start, time_end, words_text, word_times_start, word_times_end, phones_text, phones_beg_time, phones_end_time)
+
+
+# Debug:
+# !import code; code.interact(local=vars())
+# aa = [i for i in frame_alignment.tolist() if i != sp_model.blank_id]
+# bb = [i for i in frame_alignment_aux.tolist() if i != sp_model.blank_id]
+# cc = list(zip(aa, bb))
+# dd = cc[:1] + [x[1] for x in zip(cc, cc[1:]) if x[0]!=x[1]]
+# uu = [x[0] for x in dd]
+# [(x.label, y) for x, y in zip(segments, tokens)]
+
+# Analysis:
+# val, idx = torch.topk(log_prob, 5, dim=-1)
+# idx.tolist()
+# val
+# for x, y, z in zip(idx.tolist(), val.tolist(), aux_ali):
+#   print(f"{x}\n{y}\n{z}\n")
+
+
+
+# !import code; code.interact(local=vars())
+# aa = [i for i in frame_alignment.tolist() if i != sp_model.blank_id]
+# bb = [i for i in frame_alignment_aux.tolist() if i != sp_model.blank_id]
+# cc = list(zip(aa, bb))
+# dd = cc[:1] + [x[1] for x in zip(cc, cc[1:]) if x[0]!=x[1]]
+# uu = [x[0] for x in dd]
+# [(x.label, y) for x, y in zip(segments, tokens)]
+
+# import torch
+# val, idx = torch.topk(log_prob, 5, dim=-1)
+# idx.tolist()
+# val
+# for x, y, z in zip(idx.tolist(), val.tolist(), aux_ali):
+#   print(f"{x}\n{y}\n{z}\n")
+
+# fout = open("analysis3.txt", "w")
+# print(utt_info, file=fout)
+# print("", file=fout)
+# for ii, (x, y, z) in enumerate(zip(idx.tolist(), val.tolist(), aux_ali)):
+#   z_ = z - 1 if z > 0 else self.sp_model.blank_id
+#   symbol = self.sp_model.id_to_piece(z_) if z_ < self.aux_offset else '_'+self.sp_model.id_to_piece(z_ - self.aux_offset)
+#   print(f"{ii}: {ii*frame_dur}\n{x}\n{y}\n{z}: {symbol}\n", file=fout)
+# print("\t".join(rs[2]), file=fout)
+# print("\t".join(map(lambda x: f"{x:.2f}", rs[3])), file=fout)
+# print("\t".join(map(lambda x: f"{x:.2f}", rs[4])), file=fout)
+# print("", file=fout)
+# print("\t".join(rs[5]), file=fout)
+# print("\t".join(map(lambda x: f"{x:.2f}", rs[6])), file=fout)
+# print("\t".join(map(lambda x: f"{x:.2f}", rs[7])), file=fout)
+# fout.close()

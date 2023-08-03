@@ -88,33 +88,35 @@ default_config = {
     "tdnn_blstm_config": {
         "input_dim": 80,
         "num_symbols": 94,
+        # "hidden_dim": 1024,
         "hidden_dim": 640,
         "drop_out": 0.1,
         "tdnn_blstm_spec": [
-            # ["tdnn", 3, 2],
-            # ["tdnn", 3, 2],
+            ["tdnn", 3, 1],
+            ["tdnn", 3, 1],
+            ["blstm"],
+            ["tdnn", 3, 1],
+            ["blstm"],
+            ["tdnn", 3, 1],
+            ["blstm"],
             # ["blstm"],
-            # ["tdnn", 3, 1],
             # ["blstm"],
-            # ["tdnn", 3, 1],
-            # ["blstm"],
-            # # ["blstm"],
-            # # ["blstm"],
+            ["ffn", 2],
 
             # ["blstm"],
             # ["blstm"],
             # ["blstm"],
 
+            # # ["tdnn", 3, 2],
+            # # ["tdnn", 3, 2],
+            # ["tdnn", 5, 2],
             # ["tdnn", 3, 2],
-            # ["tdnn", 3, 2],
-            ["tdnn", 5, 2],
-            ["tdnn", 3, 2],
-            # ["tdnn", 3, 1],
-            ["ffn", 5],
+            # # ["tdnn", 3, 1],
+            # ["ffn", 5],
         ]
     },
 
-    "subsampling_factor": 4,
+    "subsampling_factor": 1,
 
     # training:
     "training_config": {
@@ -195,11 +197,11 @@ default_config = {
 
     "updated": False,
 
-    "topo_type": "hmm",
+    "topo_type": "ctc",
     "model_unit": "phoneme",
     "k2_loss": True,
-    "sil_penalty_intra_word": 0.05,  # The larger, the more penalty for the <sil> arcs
-    "sil_penalty_inter_word": 0.05,
+    "sil_penalty_intra_word": 0.0,  # The larger, the more penalty for the <sil> arcs
+    "sil_penalty_inter_word": 0.0,
 }
 
 
@@ -223,13 +225,13 @@ def sanity_check(config):
         assert config["subsampling_factor"] == config["rnnt_config"]["time_reduction_stride"]
         assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"] or config["spm_vocab_size"] == config["rnnt_config"]["num_symbols"]
 
-    if "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
-        subsampling_factor = 1
-        for x in config["tdnn_blstm_config"]["tdnn_blstm_spec"]:
-            if x[0] == "tdnn":
-                subsampling_factor *= x[2]
-        assert config["subsampling_factor"] == subsampling_factor
-        assert config["spm_vocab_size"] == config["tdnn_blstm_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs. {config["tdnn_blstm_config"]["num_symbols"]}'
+    # if "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
+    #     subsampling_factor = 1
+    #     for x in config["tdnn_blstm_config"]["tdnn_blstm_spec"]:
+    #         if x[0] == "tdnn":
+    #             subsampling_factor *= x[2]
+    #     assert config["subsampling_factor"] == subsampling_factor
+    #     assert config["spm_vocab_size"] == config["tdnn_blstm_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs. {config["tdnn_blstm_config"]["num_symbols"]}'
 
 
 # https://python.land/data-processing/python-yaml
