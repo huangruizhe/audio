@@ -2510,6 +2510,9 @@ def forced_align(
     input_lengths: torch.Tensor,
     target_lengths: torch.Tensor,
     blank: int = 0,
+    inter_word_blank_penalty: float = 0,
+    intra_word_blank_penalty: float = 0,
+    word_start_positions: Optional[torch.Tensor] = None
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     r"""Computes forced alignment given the emissions from a CTC-trained model and a target label.
 
@@ -2550,5 +2553,16 @@ def forced_align(
         raise ValueError(f"targets Tensor shouldn't contain blank index. Found {targets}.")
     if torch.max(targets) >= log_probs.shape[-1]:
         raise ValueError("targets values must be less than the CTC dimension")
-    paths, scores = torch.ops.torchaudio.forced_align(log_probs, targets, input_lengths, target_lengths, blank)
+    if word_start_positions is None:
+        word_start_positions = torch.Tensor([]).int()
+    paths, scores = torch.ops.torchaudio.forced_align(
+        log_probs, 
+        targets, 
+        input_lengths, 
+        target_lengths, 
+        blank, 
+        inter_word_blank_penalty, 
+        intra_word_blank_penalty, 
+        word_start_positions
+    )
     return paths, scores
