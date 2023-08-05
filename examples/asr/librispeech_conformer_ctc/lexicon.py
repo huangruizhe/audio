@@ -206,7 +206,7 @@ class Trie(object):
             
         return res, next_index, last_index
     
-    def to_k2_str_topo(self, node=None, start_index=0, last_index=-1, token2id=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, blank_id = 0, aux_offset=0, mandatory_blk=False):
+    def to_k2_str_topo(self, node=None, start_index=0, last_index=-1, token2id=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, self_loop_bonus=0, blank_id = 0, aux_offset=0, mandatory_blk=False):
         # TODO: simplify/unify making hmm and ctc decoding graphs
         if node is None:
             node = self.root
@@ -249,7 +249,7 @@ class Trie(object):
                 # No intra-word blank/silence
                 if len(c.children) > 0:
                     res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
-                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} {self_loop_bonus}"))
                     _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=blank_id)
                     next_index = _next_index
                     res.extend(_res)
@@ -257,8 +257,8 @@ class Trie(object):
                     res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token} {weight}"))
                     # res.append((last_index, f"{{x + {last_index}}} {{x + {last_index}}} {token} {token} 0"))
                     res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token} {weight}"))
-                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
-                    res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} 0"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} {self_loop_bonus}"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} {self_loop_bonus}"))
                     next_index += 1
             else:
                 # There is intra-word blank/silence with some probability
@@ -274,7 +274,7 @@ class Trie(object):
                     res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
                     if not c.mandatory_blk:
                         res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
-                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} {self_loop_bonus}"))
                     _res, _next_index, _last_index = self.to_k2_str_topo(node=c, start_index=next_index, last_index=last_index, token2id=token2id, index_offset=index_offset, topo_type=topo_type, sil_penalty_intra_word=sil_penalty_intra_word, sil_penalty_inter_word=sil_penalty_inter_word, blank_id=blank_id)
                     next_index = _next_index
                     res.extend(_res)
@@ -295,8 +295,8 @@ class Trie(object):
                     if not c.mandatory_blk:
                         res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token + _aux_offset} {weight}"))
                         res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + _aux_offset} {weight}"))
-                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} 0"))
-                    res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} 0"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} {self_loop_bonus}"))
+                    res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} {self_loop_bonus}"))
                     next_index += 1
 
             

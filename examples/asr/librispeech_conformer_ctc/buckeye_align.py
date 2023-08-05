@@ -53,7 +53,7 @@ class MyTrainEpochEndCallback(Callback):
         if pl_module.mode != "align":
             return
         
-        print(f"\nSaving alignment results for worker {pl_module.global_rank} ...\n")
+        print(f"Saving alignment results for worker {pl_module.global_rank} ...")
 
         ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali"
         ali_dir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +61,9 @@ class MyTrainEpochEndCallback(Callback):
         # torch.save(pl_module.scratch_space["ali"], ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pt")
         with open(ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pkl", 'wb') as file:
             pickle.dump(pl_module.scratch_space["ali"], file)
+        
+        # https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.strategies.Strategy.html#lightning.pytorch.strategies.Strategy.barrier
+        trainer.strategy.barrier()
 
 
 def run_train(args, config):
@@ -73,19 +76,20 @@ def run_train(args, config):
         save_top_k=config["training_config"]["save_top_k"],
         save_weights_only=False,
         verbose=True,
+        every_n_epochs=1,
     )
     train_checkpoint = ModelCheckpoint(
         checkpoint_dir,
         monitor="Losses/train_loss",
         mode="min",
-        # save_top_k=config["training_config"]["save_top_k"],
+        save_top_k=config["training_config"]["save_top_k"],
         save_weights_only=False,
         verbose=True,
-        every_n_epochs=10,
+        every_n_epochs=1,
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
 
-    if args.mode == "train":
+    if args.mode == "train" or args.mode == "pseudo":
         callbacks = [
             checkpoint,
             train_checkpoint,
@@ -116,6 +120,7 @@ def run_train(args, config):
         gradient_clip_val=config["training_config"]["gradient_clip_val"],
         # accumulate_grad_batches=3,
         # limit_train_batches=10,
+        # min_epochs=checkpoint_epoch,
 
         # align:
         limit_val_batches=0,
@@ -132,12 +137,20 @@ def run_train(args, config):
         sp_model = PhonemeTokenizerBoundary(has_boundary=False)
     elif config["model_unit"] == "phoneme_boundary":
         sp_model = PhonemeTokenizerBoundary(has_boundary=True)
+ 
     model = ConformerCTCModule(sp_model, config)
-    model.mode = args.mode
+    # model = ConformerCTCModule.load_from_checkpoint(config["training_config"]["checkpoint_path"], sp_model=sp_model, config=config, strict=False)
+    # if args.mode == "align":
+    #     model.config["training_config"]["epochs"] = checkpoint_epoch + 2 
+    # for _ in range(checkpoint_epoch):
+    #     trainer.fit_loop.epoch_progress.increment_completed()
+    # model.trainer = trainer
     
+    model.mode = args.mode
     if trainer.global_rank == 0:
         print(f"Model: \n{model}")
     data_module = get_data_module(str(args.buckeye_path), str(args.global_stats_path), sp_model, config, train_shuffle=(model.mode!="align"))
+    # trainer.fit(model, data_module)
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
 
@@ -207,6 +220,9 @@ def cli_main():
 
     config = load_config(args.train_config)
     config = update_config(config, args)
+
+    # config["sil_penalty_inter_word"] = 1.0
+    # config["sil_penalty_intra_word"] = 15.0
 
     run_train(args, config)
 

@@ -29,6 +29,8 @@ class MaximumLikelihoodLoss(nn.Module):
         ctc_beam_size: float = 10.0,
         reduction = "sum",
         use_double_scores = True,
+        mode="train",
+        device=None,
     ):
         super().__init__()
         self.graph_compiler = graph_compiler
@@ -41,6 +43,13 @@ class MaximumLikelihoodLoss(nn.Module):
         self.ctc_beam_size = ctc_beam_size
         self.reduction = reduction
         self.use_double_scores = use_double_scores
+
+        if mode == "pseudo" or mode == "align":
+            ce_weight = torch.full((self.graph_compiler.sp.get_piece_size(),), 2.0).to(device)
+            ce_weight[0] = 1.0
+            self.ce_loss = nn.CrossEntropyLoss(weight=ce_weight, reduction=self.reduction)
+        else:
+            self.ce_loss = None
 
     def encode_supervisions(
         self, targets, target_lengths, input_lengths
@@ -110,9 +119,82 @@ class MaximumLikelihoodLoss(nn.Module):
             output_beam=self.ctc_beam_size,
             reduction=self.reduction,
             use_double_scores=self.use_double_scores,
+            # delay_penalty=0.1,
         )
         return loss
     
+    def loss_with_pseudo_labels(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None) -> Tensor:
+        # Be careful: the targets here are already padded! We need to remove paddings from it
+        supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, input_lengths)
+        token_ids = texts
+
+        # import pdb; pdb.set_trace()
+        
+        if type(self.graph_compiler) is BpeCtcTrainingGraphCompiler:
+            decoding_graph = self.graph_compiler.compile(token_ids)
+        elif type(self.graph_compiler) is CharCtcTrainingGraphCompiler:
+            _samples = [samples[i] for i in indices.tolist()]
+            decoding_graph = self.graph_compiler.compile(token_ids, _samples)
+        elif type(self.graph_compiler) is PhonemeCtcTrainingGraphCompiler:
+            _samples = [samples[i] for i in indices.tolist()]
+            decoding_graph = self.graph_compiler.compile(token_ids, _samples)
+        else:
+            raise NotImplementedError
+
+        log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
+        log_probs = torch.roll(log_probs, 1, -1)  # Now blank symbol has the index of 0
+
+        dense_fsa_vec = k2.DenseFsaVec(
+            log_probs,
+            supervision_segments,
+            allow_truncate=self.subsampling_factor - 1,
+        )
+
+        ctc_loss = k2.ctc_loss(
+            decoding_graph=decoding_graph,
+            dense_fsa_vec=dense_fsa_vec,
+            output_beam=self.ctc_beam_size,
+            reduction=self.reduction,
+            use_double_scores=self.use_double_scores,
+        )
+
+        # Now, let's get the pseudo labels
+
+        output_beam = 10  # https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/conformer_ctc/ali.py
+        lattice = k2.intersect_dense(
+            decoding_graph,
+            dense_fsa_vec,
+            output_beam,
+        )
+
+        best_path = one_best_decoding(
+            lattice=lattice,
+            use_double_scores=True,
+        )
+
+        labels_ali_ = get_alignments(best_path, kind="labels")
+        labels_ali = [None] * len(labels_ali_)
+        for i, ali_ in zip(indices.tolist(), labels_ali_):
+            labels_ali[i] = ali_
+
+        log_probs_flattened = []
+        labels_flattened = []
+        assert len(labels_ali) == len(log_probs)
+        for la, p, le in zip(labels_ali, log_probs, input_lengths):
+            assert le.item() == len(la)
+            log_probs_flattened.append(p[:int(le.item())])
+            labels_flattened.extend(la)        
+        log_probs_flattened = torch.cat(log_probs_flattened, 0)
+        labels_flattened = torch.tensor(labels_flattened, dtype=torch.long).to(log_probs_flattened.device)
+        
+        ce_loss = self.ce_loss(
+            log_probs_flattened, labels_flattened
+        )
+
+        loss = 0.5 * ctc_loss + 0.5 * ce_loss
+
+        return loss
+
     def align(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None) -> Tensor:
         # Be careful: the targets here are already padded! We need to remove paddings from it
         supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, input_lengths)

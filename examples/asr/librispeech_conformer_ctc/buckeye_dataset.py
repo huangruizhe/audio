@@ -16,6 +16,8 @@ class BUCKEYE(Dataset):
     ) -> None:
         self.root = root
         self.wav_files = glob.glob(f"{root}/**/*.wav", recursive=False)
+        if len(self.wav_files) == 0:
+            self.wav_files = glob.glob(f"{root}/*.wav", recursive=False)
 
     def __getitem__(self, n: int): #  -> Tuple[Tensor, int, str, int, int]:
         """Load the n-th sample from the dataset.

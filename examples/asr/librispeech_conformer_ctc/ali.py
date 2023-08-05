@@ -258,7 +258,7 @@ def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_align
 # for x, y, z in zip(idx.tolist(), val.tolist(), aux_ali):
 #   print(f"{x}\n{y}\n{z}\n")
 
-# fout = open("analysis3.txt", "w")
+# fout = open("analysis4.txt", "w")
 # print(utt_info, file=fout)
 # print("", file=fout)
 # for ii, (x, y, z) in enumerate(zip(idx.tolist(), val.tolist(), aux_ali)):
@@ -272,4 +272,6 @@ def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_align
 # print("\t".join(rs[5]), file=fout)
 # print("\t".join(map(lambda x: f"{x:.2f}", rs[6])), file=fout)
 # print("\t".join(map(lambda x: f"{x:.2f}", rs[7])), file=fout)
+# print("", file=fout)
+# print(f"aux_ali={aux_ali}", file=fout)
 # fout.close()

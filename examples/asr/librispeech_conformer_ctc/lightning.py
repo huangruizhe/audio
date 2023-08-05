@@ -64,6 +64,19 @@ class WarmupLR(torch.optim.lr_scheduler._LRScheduler):
             return [scaling_factor * base_lr for base_lr in self.base_lrs]
 
 
+class SimpleLR(torch.optim.lr_scheduler._LRScheduler):
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        last_epoch=-1,
+        verbose=False,
+    ):
+        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
+
+    def get_lr(self):
+        return self.base_lrs
+
+
 def post_process_hypos(
     hypos: List[Hypothesis], sp_model: spm.SentencePieceProcessor
 ) -> List[Tuple[str, float, List[int], List[int]]]:
@@ -177,6 +190,7 @@ class ConformerCTCModule(LightningModule):
 
         self.config = config
         self.mode = "train"
+        # self.mode = "pseudo"
         # self.mode = "align"
         self.scratch_space = {}
         self.aux_offset = 100000
@@ -198,12 +212,17 @@ class ConformerCTCModule(LightningModule):
             eps=1e-9, 
             weight_decay=config["optim_config"]["weight_decay"]
         )
-        self.warmup_lr_scheduler = WarmupLR(
-            self.optimizer, 
-            config["optim_config"]["warmup_steps"], 
-            config["optim_config"]["force_anneal_step"], 
-            config["optim_config"]["anneal_factor"]
-        )
+        if config["optim_config"]["lr_scheduler"] == "simple":
+            self.lr_scheduler = SimpleLR(
+                self.optimizer, 
+            )
+        else:
+            self.lr_scheduler = WarmupLR(
+                self.optimizer, 
+                config["optim_config"]["warmup_steps"], 
+                config["optim_config"]["force_anneal_step"], 
+                config["optim_config"]["anneal_factor"]
+            )
 
         if inference_args is None:
             return
@@ -271,21 +290,21 @@ class ConformerCTCModule(LightningModule):
                 device=self.device,  # torch.device("cuda", self.global_rank),
                 topo_type=topo_type,
             )
-            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
         elif self.config["model_unit"] == "char":
             graph_compiler = CharCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),
                 topo_type=topo_type,
             )
-            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
         elif self.config["model_unit"] == "char_boundary":
             graph_compiler = BpeCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),
                 topo_type=topo_type,
             )
-            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
         elif self.config["model_unit"] == "phoneme" or self.config["model_unit"] == "phoneme_boundary":
             graph_compiler = PhonemeCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
@@ -296,7 +315,7 @@ class ConformerCTCModule(LightningModule):
                 sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
                 aux_offset=self.aux_offset,
             )
-            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor)
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, mode=self.mode, device=self.device)
 
     def _step(self, batch, _, step_type):
         if batch is None:
@@ -307,7 +326,10 @@ class ConformerCTCModule(LightningModule):
             batch.feature_lengths,
         )
         if type(self.loss) is MaximumLikelihoodLoss:
-            loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+            if self.mode == "pseudo":
+                loss = self.loss.loss_with_pseudo_labels(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+            else:
+                loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
         else:
             loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
         # print(f"Losses/{step_type}_loss: {loss}")
@@ -318,7 +340,7 @@ class ConformerCTCModule(LightningModule):
     def configure_optimizers(self):
         return (
             [self.optimizer],
-            [{"scheduler": self.warmup_lr_scheduler, "interval": "epoch"}],
+            [{"scheduler": self.lr_scheduler, "interval": "epoch"}],
         )
 
     def forward(self, batch: Batch, emission_only=False):
@@ -362,7 +384,7 @@ class ConformerCTCModule(LightningModule):
         Doing so allows us to account for the variability in batch sizes that
         variable-length sequential data yield.
         """
-        if self.mode == "train":
+        if self.mode == "train" or self.mode == "pseudo":
             try:
                 loss = self._step(batch, batch_idx, "train")
             except:
@@ -411,7 +433,7 @@ class ConformerCTCModule(LightningModule):
             raise NotImplementedError
 
     def validation_step(self, batch, batch_idx):
-        if self.mode == "train":
+        if self.mode == "train" or self.mode == "pseudo":
             return self._step(batch, batch_idx, "val")
         elif self.mode == "align":
             return 0
