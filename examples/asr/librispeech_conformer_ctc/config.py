@@ -93,7 +93,7 @@ default_config = {
         "drop_out": 0.1,
         "tdnn_blstm_spec": [
             ["tdnn", 5, 1],
-            ["tdnn", 3, 2],
+            ["tdnn", 3, 1],
             ["blstm"],
             ["tdnn", 3, 1],
             ["blstm"],
@@ -116,7 +116,7 @@ default_config = {
         ]
     },
 
-    "subsampling_factor": 2,
+    "subsampling_factor": 1,
 
     # training:
     "training_config": {
@@ -202,8 +202,8 @@ default_config = {
     "topo_type": "ctc",
     "model_unit": "phoneme",
     "k2_loss": True,
-    "sil_penalty_inter_word": 1,  # The larger, the more penalty for the <sil> arcs
-    "sil_penalty_intra_word": 5,
+    "sil_penalty_inter_word": 0,  # The larger, the more penalty for the <sil> arcs
+    "sil_penalty_intra_word": 0,
 }
 
 
@@ -296,7 +296,7 @@ def update_config(config, args):
 
 
 if __name__ == '__main__':
-    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_blstm_14"
+    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230804_blstm_1"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir

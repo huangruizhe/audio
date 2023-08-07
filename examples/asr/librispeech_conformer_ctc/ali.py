@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import itertools
 import torch
+from typing import List
 
 
 @dataclass
@@ -194,13 +195,13 @@ def merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset=
     return words
 
 
-def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, token_type, utt_info, sp_model, frame_dur):
+def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, token_type, utt_info, sp_model, frame_dur, aux_offset):
     segments = merge_repeats(frames, tokens, token_ids)
     # for seg in segments:
     #     print(seg)
     
     if token_type == "phoneme":
-        word_segments = merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset = 100000)
+        word_segments = merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset=aux_offset)
     else:
         word_segments = merge_words_bpe(tokens, segments)
     
@@ -223,6 +224,72 @@ def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_align
     assert len(words_text) == len(text.split())
 
     return utter_id, (time_start, time_end, words_text, word_times_start, word_times_end, phones_text, phones_beg_time, phones_end_time)
+
+
+@dataclass
+class TokenSpan:
+    index: int  # index of token in transcript
+    start: int  # start time (inclusive)
+    end: int  # end time (exclusive)
+    score: float
+
+    def __len__(self) -> int:
+        return self.end - self.start
+    
+def merge_tokens(tokens, tokens_aux, scores, blank=0) -> List[TokenSpan]:
+    prev_token = blank
+    i = start = -1
+    spans = []
+    for t, (token, token_aux) in enumerate(zip(tokens, tokens_aux)):
+        if token != prev_token or token != token_aux:
+            if prev_token != blank:
+                spans.append(TokenSpan(i, start, t, scores[start:t].mean().item()))
+            if token != blank:
+                i += 1
+                start = t
+            prev_token = token
+    if prev_token != blank:
+        spans.append(TokenSpan(i, start, len(tokens), scores[start:].mean().item()))
+    return spans
+
+
+@dataclass
+class WordSpan:
+    token_spans: List[TokenSpan]
+    score: float
+
+
+# Obtain word alignments from token alignments
+def merge_words(token_spans, tokens_aux, aux_offset=100000) -> List[WordSpan]:
+    def _score(t_spans):
+        try:
+            return sum(s.score * len(s) for s in t_spans) / sum(len(s) for s in t_spans)
+        except:
+            return 0
+
+    words = []
+    i = 0
+
+    for j, span in enumerate(token_spans):
+        if j > i and tokens_aux[span.start] >= aux_offset:
+            words.append(WordSpan(token_spans[i:j], _score(token_spans[i:j])))
+            i = j
+    if i < len(token_spans):
+        words.append(WordSpan(token_spans[i:], _score(token_spans[i:])))
+    return words
+
+
+def frames_postprocessing_single_new(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, token_type, utt_info, sp_model, frame_dur, aux_offset):
+    alignment_scores = frame_scores.exp()
+    aligned_tokens = frame_alignment
+    aligned_tokens_aux = frame_alignment_aux
+
+    token_spans = merge_tokens(aligned_tokens, aligned_tokens_aux, alignment_scores, sp_model.blank_id)
+    word_spans = merge_words(token_spans, aligned_tokens_aux, aux_offset)
+
+    return token_spans, word_spans
+
+
 
 
 # Debug:

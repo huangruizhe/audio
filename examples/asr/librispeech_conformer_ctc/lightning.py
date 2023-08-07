@@ -327,7 +327,9 @@ class ConformerCTCModule(LightningModule):
         )
         if type(self.loss) is MaximumLikelihoodLoss:
             if self.mode == "pseudo":
-                loss = self.loss.loss_with_pseudo_labels(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+                # loss = self.loss.loss_with_pseudo_labels(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+                frame_dur = self.config["subsampling_factor"] * 0.01
+                loss = self.loss.loss_with_vad(output, batch.targets, src_lengths, batch.target_lengths, batch.samples, frame_dur=frame_dur)
             else:
                 loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
         else:
@@ -351,7 +353,8 @@ class ConformerCTCModule(LightningModule):
             )
         emission = output.cpu()
         if emission_only:
-            return emission
+            # return emission
+            return emission, src_lengths
         # import pdb; pdb.set_trace()        
         if self.inference_type == "greedy":
             emission = emission.squeeze()
@@ -422,7 +425,7 @@ class ConformerCTCModule(LightningModule):
                     ali_postprocessing_single(ali, aux_ali, self.sp_model, log_prob, aux_offset=self.aux_offset)
                 
                 utter_id, rs = \
-                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, model_unit, utt_info, self.sp_model, frame_dur)
+                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, model_unit, utt_info, self.sp_model, frame_dur, self.aux_offset)
                 
                 # if utt_info[3] == "s1301a-25":
                 #     import pdb; pdb.set_trace()
