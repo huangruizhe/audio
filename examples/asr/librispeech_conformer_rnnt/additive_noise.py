@@ -60,6 +60,9 @@ class AddNoise(torch.nn.Module):
         if sample.ndim == 1:
             sample = sample.unsqueeze(0)
 
+        if self.rng.uniform(0.0, 1.0) > self.p:
+            return sample[0], sample.size(-1)
+
         snr = self.rng.uniform(*self.snr) if isinstance(self.snr, (list, tuple)) else self.snr
         noise = self.get_my_noise(sample.size(-1))
         noisy_sample = F.add_noise(sample, noise, torch.tensor([snr]))

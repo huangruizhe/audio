@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from torchaudio.models import Conformer, RNNT
 from torchaudio.models.rnnt import _Joiner, _Predictor, _TimeReduction, _Transcriber
-from torchaudio.models import Conv2dSubsampling
+from torchaudio.models import Conv2dSubsampling as Conv2dSubsampling4, Conv2dSubsampling1, Conv2dSubsampling2
 
 
 TrieNode = Tuple[Dict[int, "TrieNode"], int, Optional[Tuple[int, int]]]
@@ -54,13 +54,30 @@ class _ConformerEncoder(torch.nn.Module, _Transcriber):
             self.input_linear = torch.nn.Linear(input_dim * time_reduction_stride, conformer_input_dim)
         elif subsampling_type == "conv":
             # Default subsampling in espnet:
-            # time_reduction_stride=4 is hard-wired in the following code
-            self.input_linear = Conv2dSubsampling(
-                input_dim,
-                conformer_input_dim,
-                dropout_rate=0.1,
-                pos_enc=None,
-            )
+            if time_reduction_stride == 4:
+                # time_reduction_stride=4 is hard-wired in the following code
+                self.input_linear = Conv2dSubsampling4(
+                    input_dim,
+                    conformer_input_dim,
+                    dropout_rate=conformer_dropout,
+                    pos_enc=None,
+                )
+            elif time_reduction_stride == 2:
+                self.input_linear = Conv2dSubsampling2(
+                    input_dim,
+                    conformer_input_dim,
+                    dropout_rate=conformer_dropout,
+                    pos_enc=None,
+                )
+            elif time_reduction_stride == 1:
+                self.input_linear = Conv2dSubsampling1(
+                    input_dim,
+                    conformer_input_dim,
+                    dropout_rate=conformer_dropout,
+                    pos_enc=None,
+                )
+            else:
+                raise NotImplementedError    
         else:
             raise NotImplementedError
 
