@@ -2554,7 +2554,12 @@ def forced_align(
     if torch.max(targets) >= log_probs.shape[-1]:
         raise ValueError("targets values must be less than the CTC dimension")
     if word_start_positions is None:
-        word_start_positions = torch.Tensor([]).int()
+        # word_start_positions = torch.Tensor([]).int()
+        # targets_shape = torch.tensor(targets.shape)
+        # targets_shape[-1:] += 1
+        # targets_shape = tuple(targets_shape.tolist())
+        word_start_positions = torch.zeros(targets.shape).bool()
+    # import pdb; pdb.set_trace()
     paths, scores = torch.ops.torchaudio.forced_align(
         log_probs, 
         targets, 

@@ -56,6 +56,11 @@ void forced_align_impl(
   for (auto i = start; i < end; i++) {
     auto labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
     alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx];
+     if (labelIdx == blank) {
+        alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx] + inter_word_blank_penalty;
+     } else {
+        alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx];
+     }
   }
   for (auto t = 1; t < T; t++) {
     if (T - t <= L + R) {
@@ -82,7 +87,7 @@ void forced_align_impl(
     }
     if (start == 0) {
       alphas_a[curIdxOffset][0] =
-          alphas_a[prevIdxOffset][0] + logProbs_a[batchIndex][t][blank];
+          alphas_a[prevIdxOffset][0] + logProbs_a[batchIndex][t][blank] + inter_word_blank_penalty;
       backPtr_a[t][0] = 0;
       startloop += 1;
     }
@@ -93,6 +98,16 @@ void forced_align_impl(
       auto x2 = -std::numeric_limits<scalar_t>::infinity();
 
       auto labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
+      double blank_penalty = 0;
+      // if (labelIdx == blank) {
+      //     if (i == 0 || i == S - 1 || word_start_positions[batchIndex][i / 2 + 1].item<bool>()) {
+      //         // inter-word blank
+      //         blank_penalty = inter_word_blank_penalty;
+      //     } else {
+      //         // intra-word blank
+      //         blank_penalty = intra_word_blank_penalty;
+      //     }
+      // }
 
       // In CTC, the optimal path may optionally chose to skip a blank label.
       // x2 represents skipping a letter, and can only happen if we're not
@@ -113,7 +128,7 @@ void forced_align_impl(
         result = x0;
         backPtr_a[t][i] = 0;
       }
-      alphas_a[curIdxOffset][i] = result + logProbs_a[batchIndex][t][labelIdx];
+      alphas_a[curIdxOffset][i] = result + logProbs_a[batchIndex][t][labelIdx] + blank_penalty;
     }
   }
   auto idx1 = (T - 1) % 2;

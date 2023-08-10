@@ -37,7 +37,7 @@ from .wav2vec2 import (
     wavlm_model,
 )
 from .wavernn import WaveRNN
-from .subsampling import Conv2dSubsampling
+from .subsampling import Conv2dSubsampling, Conv2dSubsampling1, Conv2dSubsampling2
 
 
 __all__ = [
@@ -84,4 +84,6 @@ __all__ = [
     "SquimObjective",
     "SquimSubjective",
     "Conv2dSubsampling",
+    "Conv2dSubsampling2",
+    "Conv2dSubsampling1",
 ]
