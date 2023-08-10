@@ -3,6 +3,7 @@ import yaml
 import pathlib
 import logging
 import datetime
+import math
 
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
@@ -20,19 +21,19 @@ default_config = {
     "spm_vocab_size": 94,
     # "spm_vocab_size": 181,
 
-    # # Xiaohui's
+    # # # Xiaohui's
     # "rnnt_config": {
     #     "input_dim": 80,
     #     "encoding_dim": 512,
     #     "subsampling_type": "conv",  # splice, conv
-    #     "time_reduction_stride": 4,
+    #     "time_reduction_stride": 2,
     #     "conformer_input_dim": 512,
     #     "conformer_ffn_dim": 2048,
     #     "conformer_num_layers": 12,
     #     "conformer_num_heads": 8,
     #     "conformer_depthwise_conv_kernel_size": 31,
     #     "conformer_dropout": 0.1,
-    #     "num_symbols": 1024,
+    #     "num_symbols": 95, # 1024, # 95,
     #     "symbol_embedding_dim": 1024,
     #     "num_lstm_layers": 2,
     #     "lstm_hidden_dim": 512,
@@ -87,13 +88,13 @@ default_config = {
     # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
-        "num_symbols": 94,
+        "num_symbols": 94,  # 94, 29, 1027
         # "hidden_dim": 1024,
         "hidden_dim": 640,
         "drop_out": 0.1,
         "tdnn_blstm_spec": [
-            ["tdnn", 5, 1],
-            ["tdnn", 3, 1],
+            ["tdnn", 5, 2],
+            ["tdnn", 3, 1],  # 2
             ["blstm"],
             ["tdnn", 3, 1],
             ["blstm"],
@@ -109,14 +110,14 @@ default_config = {
 
             # # ["tdnn", 3, 2],
             # # ["tdnn", 3, 2],
-            # ["tdnn", 5, 1],
-            # ["tdnn", 3, 2],
+            # ["tdnn", 5, 2],
+            # ["tdnn", 3, 1],
             # ["tdnn", 3, 1],
             # ["ffn", 5],
         ]
     },
 
-    "subsampling_factor": 1,
+    "subsampling_factor": 2,
 
     # training:
     "training_config": {
@@ -130,14 +131,14 @@ default_config = {
         "gradient_clip_val": 10.0,
         "full_libri": True,
     },
-    
+
     "optim_config": {
         "lr_scheduler": "simple",
         "warmup_steps": 40,
         "force_anneal_step": 120,
         "anneal_factor": 0.96,
-        # "lr": 8e-4,
-        "lr": 3e-4,
+        "lr": 8e-4,
+        # "lr": 3e-4,
         "batch_size": None,
         "max_tokens": 2000,
         # "max_tokens": 550,  # for stride=1, and set `accumulate_grad_batches=3` in train.py
@@ -200,10 +201,10 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
-    "model_unit": "phoneme",
+    "model_unit": 'bpe',  # "phoneme",
     "k2_loss": True,
     "sil_penalty_inter_word": 0,  # The larger, the more penalty for the <sil> arcs
-    "sil_penalty_intra_word": 0,
+    "sil_penalty_intra_word": 0,  # 10000000000
 }
 
 
@@ -264,11 +265,11 @@ def my_stringify_dict(d):
     return str_d
 
 
-def save_config(config, config_file):
+def save_config(config, config_file, forced_save=False):
     _str_config = my_stringify_dict(config)
 
     pp = pathlib.Path(config_file)
-    if not pp.exists() or config["updated"]:
+    if not pp.exists() or config["updated"] or forced_save:
         if pp.exists():
             timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
             new_path = pp.with_suffix(f".{timestamp}.yaml")
@@ -296,10 +297,11 @@ def update_config(config, args):
 
 
 if __name__ == '__main__':
-    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230804_blstm_1"
+    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_note_11_2"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir
     import os
     os.makedirs(f"{exp_dir}/checkpoints", exist_ok=True)
-    save_config(config, f"{exp_dir}/train_config.yaml")
+    save_config(config, f"{exp_dir}/train_config.yaml", forced_save=True)
+    print(f"Done: " + f"{exp_dir}/train_config.yaml")

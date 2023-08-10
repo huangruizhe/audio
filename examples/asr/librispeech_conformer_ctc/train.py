@@ -87,9 +87,11 @@ def run_train(args, config):
     )
 
     if config["model_unit"] == "bpe":
-        sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+        # sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+        sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="bpe")
     elif config["model_unit"] == "char":
-        sp_model = CharTokenizer()
+        # sp_model = CharTokenizer()
+        sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="char")
     elif config["model_unit"] == "char_boundary":
         sp_model = CharTokenizerBoundary()
     elif config["model_unit"] == "phoneme":

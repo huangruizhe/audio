@@ -7,8 +7,11 @@ from collections import defaultdict
 import math
 import subprocess
 
+import sentencepiece as spm
+from tokenizer_char import CharTokenizer
 
-def read_lexicon(filename: str, has_boundary=False, quiet=False):
+
+def read_lexicon(filename: str, has_boundary=False, quiet=False, modeling_unit="phoneme"):
     """Read a lexicon from `filename`.
 
     Each line in the lexicon contains "word p1 p2 p3 ...".
@@ -30,39 +33,92 @@ def read_lexicon(filename: str, has_boundary=False, quiet=False):
     ans = defaultdict(list)
     token2id = dict()
 
-    with open(filename, "r", encoding="utf-8") as fin:
-        # whitespace = re.compile("[ \t]+")
-        for line in fin:
-            a = line.strip()
-            # a = line.strip().split()
-            if len(a) == 0:
-                continue
-            a = a.split("\t")
+    sp_model = None
+    if modeling_unit == "bpe":
+        sp_model_path = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_rnnt/spm_unigram_1023.model"
+        sp_model = spm.SentencePieceProcessor(model_file=str(sp_model_path))
+    elif modeling_unit == "char":
+        sp_model = CharTokenizer()
 
-            if len(a) != 2 and len(a) != 6:
-                logging.info(f"Found bad line {line} in lexicon file {filename}")
-                logging.info("Every line is expected to contain at least 2 fields")
-                sys.exit(1)
-            word = a[0]
-            if word == "<eps>":
-                logging.info(f"Found bad line {line} in lexicon file {filename}")
-                logging.info("<eps> should not be a valid word")
-                sys.exit(1)
+    if modeling_unit == "phoneme":
+        with open(filename, "r", encoding="utf-8") as fin:
+            # whitespace = re.compile("[ \t]+")
+            for line in fin:
+                a = line.strip()
+                # a = line.strip().split()
+                if len(a) == 0:
+                    continue
+                a = a.split("\t")
 
+                if len(a) != 2 and len(a) != 6:
+                    logging.info(f"Found bad line {line} in lexicon file {filename}")
+                    logging.info("Every line is expected to contain at least 2 fields")
+                    sys.exit(1)
+                word = a[0]
+                if word == "<eps>":
+                    logging.info(f"Found bad line {line} in lexicon file {filename}")
+                    logging.info("<eps> should not be a valid word")
+                    sys.exit(1)
+
+                # tokens = a[1:]
+                # prob = 1.0  # probability
+                # if check_float(tokens[0]):
+                #     prob = float(tokens[0])
+                #     tokens = tokens[1:]
+                
+                if len(a) == 2:
+                    tokens = a[1].split()
+                    prob = 1.0
+                elif len(a) == 6:
+                    tokens = a[5].split()
+                    prob = float(a[1])
+                
+                if has_boundary:
+                    tokens[0] = f"▁{tokens[0]}"
+
+                for t in tokens:
+                    if t not in token2id:
+                        token2id[t] = len(token2id)
+
+                ans[word].append([prob, tokens])
+    else:
+        with open(filename, "r", encoding="utf-8") as fin:
+            # whitespace = re.compile("[ \t]+")
+            mywords = set()
+            for line in fin:
+                a = line.strip()
+                # a = line.strip().split()
+                if len(a) == 0:
+                    continue
+                a = a.split("\t")
+
+                if len(a) != 2 and len(a) != 6:
+                    logging.info(f"Found bad line {line} in lexicon file {filename}")
+                    logging.info("Every line is expected to contain at least 2 fields")
+                    sys.exit(1)
+                word = a[0]
+                if word == "<eps>":
+                    logging.info(f"Found bad line {line} in lexicon file {filename}")
+                    logging.info("<eps> should not be a valid word")
+                    sys.exit(1)
+                mywords.add(word)
+
+        for word in mywords:
             # tokens = a[1:]
             # prob = 1.0  # probability
             # if check_float(tokens[0]):
             #     prob = float(tokens[0])
             #     tokens = tokens[1:]
-            
-            if len(a) == 2:
-                tokens = a[1].split()
-                prob = 1.0
-            elif len(a) == 6:
-                tokens = a[5].split()
-                prob = float(a[1])
-            
-            if has_boundary:
+            if modeling_unit == "char":
+                tokens = sp_model.encode(word, out_type=str)
+            elif modeling_unit == "bpe":
+                tokens = sp_model.encode(word, out_type=str)
+            else:
+                print(f"modeling_unit: {modeling_unit}")
+                raise NotImplementedError
+            prob = 1.0
+
+            if modeling_unit == "char" and has_boundary:
                 tokens[0] = f"▁{tokens[0]}"
 
             for t in tokens:
@@ -70,6 +126,7 @@ def read_lexicon(filename: str, has_boundary=False, quiet=False):
                     token2id[t] = len(token2id)
 
             ans[word].append([prob, tokens])
+
 
     # Normalization
     for word, pron_list in ans.items():

@@ -4,38 +4,44 @@ import logging
 from tqdm import tqdm
 
 class PhonemeTokenizerBoundary:
-    def __init__(self, has_boundary=True):
-        lexicon, token2id = read_lexicon(
-            # "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
-            "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
-            has_boundary=has_boundary,
-        )
-
-        try:
-            lexicon_new_words, _ = read_lexicon(
-                "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+    def __init__(self, has_boundary=True, modeling_unit="phoneme"):
+        if modeling_unit == "phoneme" or modeling_unit == "char" or modeling_unit == "bpe":
+            lexicon, token2id = read_lexicon(
+                # "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
+                "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
                 has_boundary=has_boundary,
-                quiet=True,
+                modeling_unit=modeling_unit,
             )
-            # lexicon.update(lexicon_new_words)
-            for w in lexicon_new_words.keys():
-                if w not in lexicon:
-                    lexicon[w] = lexicon_new_words[w]
-        except:
-            pass
 
-        try:
-            lexicon_new_words, _ = read_lexicon(
-                "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
-                has_boundary=has_boundary,
-                quiet=True,
-            )
-            # lexicon.update(lexicon_new_words)
-            for w in lexicon_new_words.keys():
-                if w not in lexicon:
-                    lexicon[w] = lexicon_new_words[w]
-        except:
-            pass
+            try:
+                lexicon_new_words, _ = read_lexicon(
+                    "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+                    has_boundary=has_boundary,
+                    quiet=True,
+                    modeling_unit=modeling_unit,
+                )
+                # lexicon.update(lexicon_new_words)
+                for w in lexicon_new_words.keys():
+                    if w not in lexicon:
+                        lexicon[w] = lexicon_new_words[w]
+            except:
+                pass
+
+            try:
+                lexicon_new_words, _ = read_lexicon(
+                    "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
+                    has_boundary=has_boundary,
+                    quiet=True,
+                    modeling_unit=modeling_unit,
+                )
+                # lexicon.update(lexicon_new_words)
+                for w in lexicon_new_words.keys():
+                    if w not in lexicon:
+                        lexicon[w] = lexicon_new_words[w]
+            except:
+                pass
+        else:
+            raise NotImplementedError
 
         self.lexicon = lexicon
         self.token2id = token2id
@@ -47,10 +53,13 @@ class PhonemeTokenizerBoundary:
 
         self.blank_id = self.token2id["-"]
 
-        if has_boundary:
-            self.unk_id = self.token2id["▁spn"]
+        if modeling_unit == "phoneme":
+            if has_boundary:
+                self.unk_id = self.token2id["▁spn"]
+            else:
+                self.unk_id = self.token2id["spn"]
         else:
-            self.unk_id = self.token2id["spn"]
+            self.unk_id = None
     
     def fstr(self, template, x):
         return fstr(template, x)
