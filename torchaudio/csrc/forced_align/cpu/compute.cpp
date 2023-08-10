@@ -99,15 +99,15 @@ void forced_align_impl(
 
       auto labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
       double blank_penalty = 0;
-      // if (labelIdx == blank) {
-      //     if (i == 0 || i == S - 1 || word_start_positions[batchIndex][i / 2 + 1].item<bool>()) {
-      //         // inter-word blank
-      //         blank_penalty = inter_word_blank_penalty;
-      //     } else {
-      //         // intra-word blank
-      //         blank_penalty = intra_word_blank_penalty;
-      //     }
-      // }
+      if (labelIdx == blank) {
+          if (i == 0 || i == S - 1 || word_start_positions[batchIndex][i / 2 + 1].item<bool>()) {
+              // inter-word blank
+              blank_penalty = inter_word_blank_penalty;
+          } else {
+              // intra-word blank
+              blank_penalty = intra_word_blank_penalty;
+          }
+      }
 
       // In CTC, the optimal path may optionally chose to skip a blank label.
       // x2 represents skipping a letter, and can only happen if we're not
