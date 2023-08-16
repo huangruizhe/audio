@@ -59,9 +59,10 @@ def run_train(args, config):
         checkpoint_dir,
         monitor="Losses/train_loss",
         mode="min",
-        # save_top_k=config["training_config"]["save_top_k"],
+        save_top_k=config["training_config"]["save_top_k"],
         save_weights_only=False,
         verbose=True,
+        # every_n_epochs=1,
         every_n_epochs=10,
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
@@ -75,6 +76,7 @@ def run_train(args, config):
     trainer = Trainer(
         default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
         max_epochs=config["training_config"]["epochs"],
+        # max_steps=500,
         num_nodes=config["training_config"]["nodes"],
         devices=config["training_config"]["gpus"],
         accelerator="gpu",
@@ -87,23 +89,33 @@ def run_train(args, config):
     )
 
     if config["model_unit"] == "bpe":
-        # sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
-        sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="bpe")
+        sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+        # sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="bpe")
     elif config["model_unit"] == "char":
-        # sp_model = CharTokenizer()
-        sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="char")
+        sp_model = CharTokenizer()
+        # sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="char")
     elif config["model_unit"] == "char_boundary":
         sp_model = CharTokenizerBoundary()
     elif config["model_unit"] == "phoneme":
         sp_model = PhonemeTokenizerBoundary(has_boundary=False)
     elif config["model_unit"] == "phoneme_boundary":
         sp_model = PhonemeTokenizerBoundary(has_boundary=True)
-    model = ConformerCTCModule(sp_model, config)
     
-    if trainer.global_rank == 0:
-        print(f"Model: \n{model}")
-    data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
-    trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
+    if True:
+        model = ConformerCTCModule(sp_model, config)
+        
+        if trainer.global_rank == 0:
+            print(f"Model: \n{model}")
+        data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
+        trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
+    else:
+        model = ConformerCTCModule.load_from_checkpoint(config["training_config"]["checkpoint_path"], sp_model=sp_model, config=config, strict=False)    
+        model.trainer = trainer
+        
+        if trainer.global_rank == 0:
+            print(f"Model: \n{model}")
+        data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
+        trainer.fit(model, data_module)
 
 
 def cli_main():

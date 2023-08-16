@@ -21,7 +21,7 @@ default_config = {
     "spm_vocab_size": 94,
     # "spm_vocab_size": 181,
 
-    # # # Xiaohui's
+    # # Xiaohui's
     # "rnnt_config": {
     #     "input_dim": 80,
     #     "encoding_dim": 512,
@@ -85,7 +85,7 @@ default_config = {
     #     "joiner_activation": "tanh",
     # },
 
-    # "tdnn_blstm_config": None,
+    # # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
         "num_symbols": 94,  # 94, 29, 1027
@@ -201,7 +201,7 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
-    "model_unit": 'bpe',  # "phoneme",
+    "model_unit": 'phoneme',  # "phoneme",
     "k2_loss": True,
     "sil_penalty_inter_word": 0,  # The larger, the more penalty for the <sil> arcs
     "sil_penalty_intra_word": 0,  # 10000000000
@@ -233,7 +233,7 @@ def sanity_check(config):
             if x[0] == "tdnn":
                 subsampling_factor *= x[2]
         assert config["subsampling_factor"] == subsampling_factor
-        assert config["spm_vocab_size"] == config["tdnn_blstm_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs. {config["tdnn_blstm_config"]["num_symbols"]}'
+        assert config["spm_vocab_size"] == config["tdnn_blstm_config"]["num_symbols"] or config["spm_vocab_size"] + 1 == config["tdnn_blstm_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs. {config["tdnn_blstm_config"]["num_symbols"]}'
 
 
 # https://python.land/data-processing/python-yaml
@@ -297,7 +297,7 @@ def update_config(config, args):
 
 
 if __name__ == '__main__':
-    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_note_11_2"
+    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_priors2"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir

@@ -30,6 +30,9 @@ class BpeCtcTrainingGraphCompiler(object):
         bpe_model,
         device: Union[str, torch.device] = "cpu",
         topo_type = "ctc",
+        sil_penalty_intra_word=1e6,
+        sil_penalty_inter_word=0,
+        aux_offset=0,
     ) -> None:
         """
         Args:
@@ -60,10 +63,20 @@ class BpeCtcTrainingGraphCompiler(object):
 
         if topo_type == "hmm":
             self.max_token_id = sp.vocab_size() + 1  # hard-coded for torch audio
-            self.topo = BpeCtcTrainingGraphCompiler.hmm_topo(self.max_token_id, self.start_tokens, sil_id=0)
+            self.topo = BpeCtcTrainingGraphCompiler.hmm_topo(
+                self.max_token_id, 
+                self.start_tokens, 
+                sil_id=0,
+                sil_penalty_intra_word=sil_penalty_intra_word,
+                sil_penalty_inter_word=sil_penalty_inter_word,
+                aux_offset=aux_offset,
+            )
         else:
             self.max_token_id = None
             self.topo = None
+
+        self.sil_penalty_intra_word = sil_penalty_intra_word
+        self.sil_penalty_inter_word = sil_penalty_inter_word
 
         self.topo_type = topo_type
 
@@ -183,6 +196,9 @@ class BpeCtcTrainingGraphCompiler(object):
         start_tokens: list,
         device = None,
         sil_id: int = 0,
+        sil_penalty_intra_word: float = 1e6,
+        sil_penalty_inter_word: float = 0,
+        aux_offset=0,
     ) -> k2.Fsa:
         '''
         HMM topo
@@ -204,23 +220,25 @@ class BpeCtcTrainingGraphCompiler(object):
         arcs = []
 
         blk = sil_id
-        arcs.append([start_state, start_state, blk, blk, 0])
+        arcs.append([start_state, start_state, blk, blk, -sil_penalty_inter_word])
 
         for i in range(1, max_token + 1):
             arcs.append([start_state, loop_state, i, i, 0])
 
-        arcs.append([loop_state, blk_state, blk, blk, 0])
-        arcs.append([blk_state, blk_state, blk, blk, 0])
+        arcs.append([loop_state, blk_state, blk, blk, -sil_penalty_inter_word])
+        arcs.append([blk_state, blk_state, blk, blk, -sil_penalty_inter_word])
 
         for i in range(1, max_token + 1):
             cur_state = next_available_state  # state_id
             next_available_state += 1
 
             arcs.append([loop_state, loop_state, i, i, 0])
+            if sil_penalty_intra_word < 1e5:
+                arcs.append([loop_state, loop_state, blk, blk, -sil_penalty_intra_word])
             arcs.append([loop_state, cur_state, i, i, 0])
             arcs.append([cur_state, cur_state, i, blk, 0])
             arcs.append([cur_state, loop_state, i, blk, 0])
-            
+
             arcs.append([start_state, cur_state, i, i, 0])
 
             if i in start_tokens:

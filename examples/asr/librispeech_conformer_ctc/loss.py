@@ -112,6 +112,12 @@ class MaximumLikelihoodLoss(nn.Module):
         log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
         log_probs = torch.roll(log_probs, 1, -1)  # Now blank symbol has the index of 0
 
+        # Adding label priors (per batch)
+        T = log_probs.size(1)
+        batch_priors = torch.logsumexp(log_probs, dim=[0, 1], keepdim=True) / T
+        batch_priors = batch_priors.detach()
+        log_probs -= batch_priors
+
         dense_fsa_vec = k2.DenseFsaVec(
             log_probs,
             supervision_segments,

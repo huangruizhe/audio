@@ -66,7 +66,7 @@ def ali_postprocessing_single(labels_ali, aux_labels_ali, sp_model, emission, au
 
     ############ get confidence scores and change frame rate ############
     # Ref: https://pytorch.org/audio/main/tutorials/ctc_forced_alignment_api_tutorial.html
-    assert emission.size(0) == len(labels_ali)
+    assert emission.size(0) == len(labels_ali), f"{emission.size(0)} != {len(labels_ali)}"
 
     frame_alignment = torch.LongTensor(labels_ali)
     frame_alignment_aux = torch.LongTensor(aux_labels_ali)
@@ -200,7 +200,7 @@ def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_align
     # for seg in segments:
     #     print(seg)
     
-    if token_type == "phoneme":
+    if token_type == "phoneme" or token_type == "bpe" or token_type == "char":
         word_segments = merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset=aux_offset)
     else:
         word_segments = merge_words_bpe(tokens, segments)

@@ -127,9 +127,11 @@ def run_train(args, config):
     )
 
     if config["model_unit"] == "bpe":
-        sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+        # sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
+        sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="bpe")
     elif config["model_unit"] == "char":
-        sp_model = CharTokenizer()
+        # sp_model = CharTokenizer()
+        sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="char")
     elif config["model_unit"] == "char_boundary":
         sp_model = CharTokenizerBoundary()
     elif config["model_unit"] == "phoneme":
@@ -137,7 +139,7 @@ def run_train(args, config):
     elif config["model_unit"] == "phoneme_boundary":
         sp_model = PhonemeTokenizerBoundary(has_boundary=True)
  
-    if args.mode == "pseudo" or args.mode == "align":
+    if args.mode == "pseudo" or args.mode == "align" or args.mode == "train":
         model = ConformerCTCModule.load_from_checkpoint(config["training_config"]["checkpoint_path"], sp_model=sp_model, config=config, strict=False)
         if args.mode == "align":
             model.config["training_config"]["epochs"] = checkpoint_epoch + 2 

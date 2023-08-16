@@ -203,6 +203,9 @@ class ConformerCTCModule(LightningModule):
         elif "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
             self.model = tdnn_blstm_ctc_customized(config)
 
+        # print(self.model)
+        # print(config)
+
         self.loss = None
         
         self.optimizer = torch.optim.Adam(
@@ -284,30 +287,30 @@ class ConformerCTCModule(LightningModule):
         if not self.config["k2_loss"]:
             self.loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction=self.config["optim_config"]["reduction"])
         # Option 2:
-        # elif self.config["model_unit"] == "bpe":
-        #     graph_compiler = BpeCtcTrainingGraphCompiler(
-        #         bpe_model=self.sp_model,
-        #         device=self.device,  # torch.device("cuda", self.global_rank),
-        #         topo_type=topo_type,
-        #         sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
-        #         sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
-        #     )
-        #     self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
-        # elif self.config["model_unit"] == "char":
-        #     graph_compiler = CharCtcTrainingGraphCompiler(
-        #         bpe_model=self.sp_model,
-        #         device=self.device,  # torch.device("cuda", self.global_rank),
-        #         topo_type=topo_type,
-        #     )
-        #     self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
-        # elif self.config["model_unit"] == "char_boundary":
-        #     graph_compiler = BpeCtcTrainingGraphCompiler(
-        #         bpe_model=self.sp_model,
-        #         device=self.device,  # torch.device("cuda", self.global_rank),
-        #         topo_type=topo_type,
-        #     )
-        #     self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
-        elif self.config["model_unit"] == "phoneme" or self.config["model_unit"] == "phoneme_boundary" or self.config["model_unit"] == "bpe" or self.config["model_unit"] == "char":
+        elif self.config["model_unit"] == "bpe":
+            graph_compiler = BpeCtcTrainingGraphCompiler(
+                bpe_model=self.sp_model,
+                device=self.device,  # torch.device("cuda", self.global_rank),
+                topo_type=topo_type,
+                sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
+                sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
+            )
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
+        elif self.config["model_unit"] == "char":
+            graph_compiler = CharCtcTrainingGraphCompiler(
+                bpe_model=self.sp_model,
+                device=self.device,  # torch.device("cuda", self.global_rank),
+                topo_type=topo_type,
+            )
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
+        elif self.config["model_unit"] == "char_boundary":
+            graph_compiler = BpeCtcTrainingGraphCompiler(
+                bpe_model=self.sp_model,
+                device=self.device,  # torch.device("cuda", self.global_rank),
+                topo_type=topo_type,
+            )
+            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
+        elif self.config["model_unit"] == "phoneme" or self.config["model_unit"] == "phoneme_boundary": # or self.config["model_unit"] == "bpe" or self.config["model_unit"] == "char":
             graph_compiler = PhonemeCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),
@@ -422,6 +425,10 @@ class ConformerCTCModule(LightningModule):
                 utt_info = batch.samples[i][1:]
                 model_unit = self.config["model_unit"]
                 frame_dur = self.config["subsampling_factor"] * 0.01
+
+                if len(ali) == 0:
+                    logging.warning(f"Empty ali: {utt_info}")
+                    continue
 
                 tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames = \
                     ali_postprocessing_single(ali, aux_ali, self.sp_model, log_prob, aux_offset=self.aux_offset)
