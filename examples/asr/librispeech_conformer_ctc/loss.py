@@ -56,6 +56,10 @@ class MaximumLikelihoodLoss(nn.Module):
 
         self.bce_loss = nn.BCELoss(reduction=self.reduction)
 
+        self.log_priors = None
+        self.log_priors_sum = None
+        self.priors_T = 0
+
     def encode_supervisions(
         self, targets, target_lengths, input_lengths
     ) -> Tuple[torch.Tensor, Union[List[str], List[List[int]]]]:
@@ -91,7 +95,7 @@ class MaximumLikelihoodLoss(nn.Module):
 
         return supervision_segments, res, indices
 
-    def forward(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None) -> Tensor:
+    def forward(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None, step_type="train") -> Tensor:
         # Be careful: the targets here are already padded! We need to remove paddings from it
         supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, input_lengths)
         token_ids = texts
@@ -111,12 +115,28 @@ class MaximumLikelihoodLoss(nn.Module):
 
         log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
         log_probs = torch.roll(log_probs, 1, -1)  # Now blank symbol has the index of 0
+        
+        if True and step_type == "train":
+            log_probs_flattened = []
+            for lp, le in zip(log_probs, input_lengths):
+                log_probs_flattened.append(lp[:int(le.item())])      
+            log_probs_flattened = torch.cat(log_probs_flattened, 0)
+
+            # Note, the log_probs here is already log_softmax'ed.
+            T = log_probs_flattened.size(0)
+            self.priors_T += T
+            log_batch_priors_sum = torch.logsumexp(log_probs_flattened, dim=0, keepdim=True)
+            log_batch_priors_sum = log_batch_priors_sum.detach()
+            if self.log_priors_sum is None:
+                self.log_priors_sum = log_batch_priors_sum
+            else:
+                _temp = torch.stack([self.log_priors_sum, log_batch_priors_sum], dim=-1)
+                self.log_priors_sum = torch.logsumexp(_temp, dim=-1)
 
         # Adding label priors (per batch)
-        T = log_probs.size(1)
-        batch_priors = torch.logsumexp(log_probs, dim=[0, 1], keepdim=True) / T
-        batch_priors = batch_priors.detach()
-        log_probs -= batch_priors
+        prior_scaling_factor = 0.3
+        if self.log_priors is not None:
+            log_probs -= self.log_priors * prior_scaling_factor
 
         dense_fsa_vec = k2.DenseFsaVec(
             log_probs,
@@ -313,6 +333,10 @@ class MaximumLikelihoodLoss(nn.Module):
 
         log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
         log_probs = torch.roll(log_probs, 1, -1)  # Now blank symbol has the index of 0
+        
+        prior_scaling_factor = 0.3
+        if self.log_priors is not None:
+            log_probs -= self.log_priors * prior_scaling_factor
 
         dense_fsa_vec = k2.DenseFsaVec(
             log_probs,

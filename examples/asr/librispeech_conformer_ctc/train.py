@@ -6,6 +6,7 @@ from tokenizer_char import CharTokenizer
 from tokenizer_char_boundary import CharTokenizerBoundary
 from tokenizer_phone_boundary import PhonemeTokenizerBoundary
 
+import torch
 from lightning import ConformerCTCModule
 from pytorch_lightning import seed_everything, Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, Callback
@@ -17,10 +18,10 @@ import logging
 
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
-# logging.basicConfig(
-#     format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
-#     level = 10
-# )
+logging.basicConfig(
+    format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
+    level = 10
+)
 
 class MyFitStartCallback(Callback):
     def on_fit_start(self, trainer, pl_module):
@@ -42,6 +43,48 @@ class MyTrainStartCallback(Callback):
             config_file = config_file.absolute()
             logging.info(f"Saving config to: {config_file}")
             save_config(pl_module.config, config_file)
+
+
+class MyTrainEpochEndCallback(Callback):
+    def on_train_epoch_end(self, trainer, pl_module):
+        # import pdb; pdb.set_trace()
+        log_priors_sums = pl_module.all_gather(pl_module.loss.log_priors_sum)
+        log_priors_sums = torch.logsumexp(log_priors_sums, dim=0, keepdim=True)
+        priors_Ts = pl_module.all_gather(pl_module.loss.priors_T)
+        # log_priors_Ts = torch.Tensor([priors_Ts]).log().to(log_priors_sums.device)
+        log_priors_Ts = priors_Ts.sum().log().to(log_priors_sums.device)
+        new_log_prior = log_priors_sums - log_priors_Ts
+        
+        _a1 = log_priors_sums.exp().sum()
+        _b1 = priors_Ts.sum()
+        assert abs(_a1 - _b1) / _b1 < 1e-4
+
+        if pl_module.global_rank == 0:
+            print("new_priors: ", ["{0:0.2f}".format(i) for i in new_log_prior[0][0].exp().tolist()])
+            print("new_log_prior: ", ["{0:0.2f}".format(i) for i in new_log_prior[0][0].tolist()])
+            if pl_module.loss.log_priors is not None:
+                _a1 = new_log_prior.exp()
+                _b1 = pl_module.loss.log_priors.exp()
+                print("diff%: ", ["{0:0.2f}".format(i) for i in ((_a1 - _b1)/_b1*100)[0][0].tolist()])
+
+        prior_threshold = -12.0
+        new_log_prior = torch.where(new_log_prior < prior_threshold, prior_threshold, new_log_prior)
+        if pl_module.global_rank == 0:
+            print("new_log_prior (clipped): ", ["{0:0.2f}".format(i) for i in new_log_prior[0][0].tolist()])
+
+        pl_module.loss.log_priors = new_log_prior
+        pl_module.loss.log_priors_sum = None
+        pl_module.loss.priors_T = 0
+
+        if pl_module.global_rank == 0:
+            ck_path = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "checkpoints"
+            ck_path.mkdir(parents=True, exist_ok=True)
+            torch.save(new_log_prior, ck_path / f"log_priors_epoch_{pl_module.current_epoch}.pt")
+
+
+class MyTrainEpochEndCallback_Priors(Callback):
+    def on_train_epoch_end(self, trainer, pl_module):
+        pass
 
 
 def run_train(args, config):
@@ -72,6 +115,7 @@ def run_train(args, config):
         lr_monitor,
         MyFitStartCallback(),
         MyTrainStartCallback(),
+        MyTrainEpochEndCallback(),
     ]
     trainer = Trainer(
         default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
@@ -85,7 +129,8 @@ def run_train(args, config):
         reload_dataloaders_every_n_epochs=1,
         gradient_clip_val=config["training_config"]["gradient_clip_val"],
         # accumulate_grad_batches=3,
-        # limit_train_batches=10,
+        # limit_train_batches=100,
+        # limit_val_batches=10,
     )
 
     if config["model_unit"] == "bpe":

@@ -93,31 +93,31 @@ default_config = {
         "hidden_dim": 640,
         "drop_out": 0.1,
         "tdnn_blstm_spec": [
-            ["tdnn", 5, 2],
-            ["tdnn", 3, 1],  # 2
-            ["blstm"],
-            ["tdnn", 3, 1],
-            ["blstm"],
-            ["tdnn", 3, 1],
-            ["blstm"],
-            # ["blstm"],
-            # ["blstm"],
-            ["ffn", 2],
-
-            # ["blstm"],
-            # ["blstm"],
-            # ["blstm"],
-
-            # # ["tdnn", 3, 2],
-            # # ["tdnn", 3, 2],
             # ["tdnn", 5, 2],
+            # ["tdnn", 3, 1],  # 2
+            # ["blstm"],
             # ["tdnn", 3, 1],
+            # ["blstm"],
             # ["tdnn", 3, 1],
-            # ["ffn", 5],
+            # ["blstm"],
+            # # ["blstm"],
+            # # ["blstm"],
+            # ["ffn", 2],
+
+            # ["blstm"],
+            # ["blstm"],
+            # ["blstm"],
+
+            # ["tdnn", 3, 2],
+            # ["tdnn", 3, 2],
+            ["tdnn", 9, 1],  # 5
+            ["tdnn", 3, 1],  # 3
+            ["tdnn", 3, 1],
+            ["ffn", 5],
         ]
     },
 
-    "subsampling_factor": 2,
+    "subsampling_factor": 1,
 
     # training:
     "training_config": {

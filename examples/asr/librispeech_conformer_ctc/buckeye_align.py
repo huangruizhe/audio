@@ -139,7 +139,7 @@ def run_train(args, config):
     elif config["model_unit"] == "phoneme_boundary":
         sp_model = PhonemeTokenizerBoundary(has_boundary=True)
  
-    if args.mode == "pseudo" or args.mode == "align" or args.mode == "train":
+    if args.mode == "pseudo": # or args.mode == "align" or args.mode == "train":
         model = ConformerCTCModule.load_from_checkpoint(config["training_config"]["checkpoint_path"], sp_model=sp_model, config=config, strict=False)
         if args.mode == "align":
             model.config["training_config"]["epochs"] = checkpoint_epoch + 2 

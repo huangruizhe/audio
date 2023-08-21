@@ -2,6 +2,7 @@ import logging
 import math
 from collections import namedtuple
 from typing import List, Tuple
+import pathlib
 
 import sentencepiece as spm
 import torch
@@ -322,6 +323,18 @@ class ConformerCTCModule(LightningModule):
             )
             self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, mode=self.mode, device=self.device)
 
+        if self.config["training_config"]["checkpoint_path"] is not None:
+            checkpoint_epoch = str(pathlib.Path(self.config["training_config"]["checkpoint_path"]).stem)
+            checkpoint_epoch = int(checkpoint_epoch[6: checkpoint_epoch.find("-")])
+            _exp_dir = pathlib.Path(self.config["training_config"]["checkpoint_path"]).parent
+            log_priors_path = _exp_dir / f"log_priors_epoch_{checkpoint_epoch - 1}.pt"
+            if log_priors_path.exists():
+                print(f"Loading priors from file: {log_priors_path}")
+                self.loss.log_priors = torch.load(log_priors_path, map_location=self.device)
+        if self.loss.log_priors is None:
+            print("No priors has been provided!")
+
+
     def _step(self, batch, _, step_type):
         if batch is None:
             return None
@@ -336,7 +349,7 @@ class ConformerCTCModule(LightningModule):
                 frame_dur = self.config["subsampling_factor"] * 0.01
                 loss = self.loss.loss_with_vad(output, batch.targets, src_lengths, batch.target_lengths, batch.samples, frame_dur=frame_dur)
             else:
-                loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+                loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples, step_type=step_type)
         else:
             loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
         # print(f"Losses/{step_type}_loss: {loss}")
@@ -398,11 +411,13 @@ class ConformerCTCModule(LightningModule):
             except:
                 loss = 0
                 for model_param_name, model_param_value in self.model.named_parameters():  # encoder_output_layer.
-                        # if model_param_name.endswith('weight'):
-                        #     loss += model_param_value.abs().sum()
-                        loss += model_param_value.abs().sum()
+                    # if model_param_name.endswith('weight'):
+                    #     loss += model_param_value.abs().sum()
+                    loss += model_param_value.abs().sum()
                 loss = loss * 1e-5
                 logger.info(f"[{self.global_rank}] batch {batch_idx} is bad")
+                import traceback
+                traceback.print_exc()
             batch_size = batch.features.size(0)
             batch_sizes = self.all_gather(batch_size)
             self.log("Gathered batch size", batch_sizes.sum(), on_step=True, on_epoch=True, batch_size=batch_size)
