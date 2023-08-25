@@ -18,7 +18,7 @@ default_config = {
     # "spm_vocab_size": 1023,
     # "spm_vocab_size": 29,
     # "spm_vocab_size": 55,
-    "spm_vocab_size": 94,
+    "spm_vocab_size": 94,  # phoneme
     # "spm_vocab_size": 181,
 
     # # Xiaohui's
@@ -68,13 +68,13 @@ default_config = {
     #     "input_dim": 80,
     #     "encoding_dim": 512,
     #     "subsampling_type": "conv",  # splice, conv
-    #     "time_reduction_stride": 4,
+    #     "time_reduction_stride": 2,
     #     "conformer_input_dim": 512,
     #     "conformer_ffn_dim": 2048,
     #     "conformer_num_layers": 4,
     #     "conformer_num_heads": 8,
     #     "conformer_depthwise_conv_kernel_size": 31,
-    #     "conformer_dropout": 0.1,
+    #     "conformer_dropout": 0.2,
     #     "num_symbols": 181,
     #     "symbol_embedding_dim": 1024,
     #     "num_lstm_layers": 2,
@@ -88,7 +88,8 @@ default_config = {
     # # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
-        "num_symbols": 94,  # 94, 29, 1027
+        "num_symbols": 94,  # 94, 29, 1024
+        # "num_symbols": 1024,
         # "hidden_dim": 1024,
         "hidden_dim": 640,
         "drop_out": 0.1,
@@ -108,16 +109,34 @@ default_config = {
             # ["blstm"],
             # ["blstm"],
 
-            # ["tdnn", 3, 2],
-            # ["tdnn", 3, 2],
-            ["tdnn", 9, 1],  # 5
-            ["tdnn", 3, 1],  # 3
-            ["tdnn", 3, 1],
+            # # ["tdnn", 3, 2],
+            # # ["tdnn", 3, 2],
+            # ('tdnn', kernel_size, stride, dilation) 
+            ["tdnn", 5, 2, 1],  # 5/9
+            ["tdnn", 3, 1, 1],  # 3
+            ["tdnn", 3, 1, 1],
             ["ffn", 5],
+
+            # # stride=1 for 533
+            # # ('tdnn', kernel_size, stride, dilation) 
+            # ["tdnn", 5, 1, 1],
+            # ["tdnn", 3, 1, 2],
+            # ["tdnn", 3, 1, 2],
+            # ["ffn", 5],
+
+            # # stride=1
+            # # ('tdnn', kernel_size, stride, dilation) 
+            # ["tdnn", 9, 1, 1],
+            # ["tdnn", 3, 1, 1],
+            # ["tdnn", 3, 1, 1],
+            # ["ffn", 5],
         ]
     },
 
-    "subsampling_factor": 1,
+    "subsampling_factor": 2,
+
+    "prior_scaling_factor": 0.5,
+    "frame_dropout": 0.0,
 
     # training:
     "training_config": {
@@ -153,7 +172,7 @@ default_config = {
         "n_time_masks": 0,
         "time_mask_param": 100,
         "p": 0.2,
-        "n_freq_masks": 2,
+        "n_freq_masks": 0,
         "freq_mask_param": 27,
         "iid_masks": True,
         "zero_masking": True,
@@ -187,7 +206,8 @@ default_config = {
     "musan_noise": False,
     # "musan_noise": {
     #     "subsets": ["noise", "music"],  # "music", "speech"
-    #     "snr": [15, 30],
+    #     # "snr": [15, 30],
+    #     "snr": [15, 25],
     #     "p": 0.5,
     # },
 
@@ -201,10 +221,10 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
-    "model_unit": 'phoneme',  # "phoneme",
+    "model_unit": 'phoneme',  # "phoneme", "char", "bpe"
     "k2_loss": True,
-    "sil_penalty_inter_word": 0,  # The larger, the more penalty for the <sil> arcs
-    "sil_penalty_intra_word": 0,  # 10000000000
+    "sil_penalty_inter_word": 0.0,  # The larger, the more penalty for the <sil> arcs
+    "sil_penalty_intra_word": 0.0,  # 10000000000
 }
 
 
@@ -297,7 +317,7 @@ def update_config(config, args):
 
 
 if __name__ == '__main__':
-    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_priors2"
+    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_0824_dnn533_ctc_0.0_0.0_p0.5"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir

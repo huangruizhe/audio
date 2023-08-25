@@ -114,7 +114,7 @@ class TdnnBlstm(nn.Module):
 
           tdnn_blstm_spec:
             It is a list of network specifications. It can be either:
-            - ('tdnn', kernel_size, stride) 
+            - ('tdnn', kernel_size, stride, dilation) 
             - ('blstm')
         """
         super().__init__()
@@ -126,14 +126,16 @@ class TdnnBlstm(nn.Module):
         for i_layer, spec in enumerate(tdnn_blstm_spec):
             if spec[0] == 'tdnn':
                 ll = []
+                dilation = spec[3] if len(spec) >= 4 else 1
+                padding = int((spec[1] - 1)/2) * dilation
                 ll.append(
                     nn.Conv1d(
                         in_channels=input_dim if len(layers) == 0 else hidden_dim,
                         out_channels=hidden_dim,
                         kernel_size=spec[1],  # 3
-                        dilation=1,
+                        dilation=dilation,
                         stride=spec[2],  # 1
-                        padding=int((spec[1] - 1)/2),  # 1
+                        padding=padding,  # 1
                     )
                 )
                 ll.append(nn.ReLU(inplace=True))
@@ -194,10 +196,11 @@ class TdnnBlstm(nn.Module):
                 x = x.permute(0, 2, 1)  # (N, C, T) ->(N, T, C)
 
                 stride = spec[2]
-                if stride > 1:
+                if True:  # stride > 1:
                     kernel_size = spec[1]
-                    padding = int((spec[1] - 1)/2)
-                    lengths = lengths + 2 * padding - 1 * (kernel_size - 1) - 1
+                    dilation = spec[3] if len(spec) >= 4 else 1
+                    padding = int((spec[1] - 1)/2) * dilation
+                    lengths = lengths + 2 * padding - dilation * (kernel_size - 1) - 1
                     lengths = lengths / stride + 1
                     lengths = torch.floor(lengths)
             elif layer_type == "blstm":

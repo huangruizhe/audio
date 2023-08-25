@@ -278,15 +278,20 @@ class ConformerCTCModule(LightningModule):
                 log_add=False,
             )
     
-    def initialize_loss_func(self, topo_type=None, subsampling_factor=None):
+    def initialize_loss_func(self, topo_type=None, subsampling_factor=None, prior_scaling_factor=None, frame_dropout=None):
         if topo_type is None:
             topo_type = self.config["topo_type"]
         if subsampling_factor is None:
             subsampling_factor = self.config["subsampling_factor"]
+        if prior_scaling_factor is None:
+            prior_scaling_factor = self.config["prior_scaling_factor"]
+        if frame_dropout is None:
+            frame_dropout = self.config["frame_dropout"]
 
         # Option 1:
+        torch_ctc_loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction=self.config["optim_config"]["reduction"])
         if not self.config["k2_loss"]:
-            self.loss = torch.nn.CTCLoss(blank=self.blank_idx, reduction=self.config["optim_config"]["reduction"])
+            self.loss = torch_ctc_loss
         # Option 2:
         elif self.config["model_unit"] == "bpe":
             graph_compiler = BpeCtcTrainingGraphCompiler(
@@ -321,16 +326,32 @@ class ConformerCTCModule(LightningModule):
                 sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
                 aux_offset=self.aux_offset,
             )
-            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, mode=self.mode, device=self.device)
+            self.loss = MaximumLikelihoodLoss(
+                graph_compiler, 
+                subsampling_factor=subsampling_factor, 
+                mode=self.mode, 
+                device=self.device, 
+                prior_scaling_factor=prior_scaling_factor,
+                frame_dropout_rate=frame_dropout,
+                # torch_ctc_loss=torch_ctc_loss,
+            )
 
         if self.config["training_config"]["checkpoint_path"] is not None:
             checkpoint_epoch = str(pathlib.Path(self.config["training_config"]["checkpoint_path"]).stem)
             checkpoint_epoch = int(checkpoint_epoch[6: checkpoint_epoch.find("-")])
             _exp_dir = pathlib.Path(self.config["training_config"]["checkpoint_path"]).parent
-            log_priors_path = _exp_dir / f"log_priors_epoch_{checkpoint_epoch - 1}.pt"
+            if self.mode == "train":
+                log_priors_path = _exp_dir / f"log_priors_epoch_{checkpoint_epoch}.pt"
+            else:
+                log_priors_path = _exp_dir / f"log_priors_epoch_{checkpoint_epoch - 1}.pt"
             if log_priors_path.exists():
                 print(f"Loading priors from file: {log_priors_path}")
                 self.loss.log_priors = torch.load(log_priors_path, map_location=self.device)
+            else:
+                log_priors_path = _exp_dir / f"log_priors.pt"
+                if log_priors_path.exists():
+                    print(f"Loading priors from file: {log_priors_path}")
+                    self.loss.log_priors = torch.load(log_priors_path, map_location=self.device)
         if self.loss.log_priors is None:
             print("No priors has been provided!")
 
@@ -443,6 +464,7 @@ class ConformerCTCModule(LightningModule):
 
                 if len(ali) == 0:
                     logging.warning(f"Empty ali: {utt_info}")
+                    # import pdb; pdb.set_trace()
                     continue
 
                 tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames = \
@@ -458,6 +480,16 @@ class ConformerCTCModule(LightningModule):
             return None
         else:
             raise NotImplementedError
+
+    def get_ali_for_priors(self, batch: Batch, batch_idx):
+        output, src_lengths = self.model(
+            batch.features,
+            batch.feature_lengths,
+        )
+        labels_ali, aux_labels_ali, log_probs = \
+            self.loss.align(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+        
+        return labels_ali, aux_labels_ali, log_probs
 
     def validation_step(self, batch, batch_idx):
         if self.mode == "train" or self.mode == "pseudo":

@@ -58,11 +58,11 @@ def remove_consecutive_duplicates(lst, aux_offset=0):
         last_seen = x
     return res
 
-def ali_postprocessing_single(labels_ali, aux_labels_ali, sp_model, emission, aux_offset=100000):
-     # Hard-coded for torchaudio       
+def ali_postprocessing_single(labels_ali, aux_labels_ali, sp_model, emission, aux_offset=100000, shift_label=False):
+     # Hard-coded for torchaudio
     labels_ali = [x - 1 if x > 0 else sp_model.blank_id for x in labels_ali]
     aux_labels_ali = [x - 1 if x > 0 else sp_model.blank_id for x in aux_labels_ali]
-    # import pdb; pdb.set_trace()
+    import pdb; pdb.set_trace()
 
     ############ get confidence scores and change frame rate ############
     # Ref: https://pytorch.org/audio/main/tutorials/ctc_forced_alignment_api_tutorial.html
@@ -163,6 +163,33 @@ def merge_words_bpe(tokens, segments):
     return words
 
 
+def merge_words_without_seperator(tokens, segments, text, separator=" "):
+    words = []
+
+    i1, i2, i3 = 0, 0, 0
+    while i3 < len(tokens):
+        if i3 - i1 > 0 and text[i2] == separator:
+            # if i3 == len(tokens) - 1:
+            #     i3 = len(tokens)
+            segs = segments[i1: i3]
+            word = "".join([seg.label for seg in segs])
+            score = sum(seg.score * seg.length for seg in segs) / sum(seg.length for seg in segs)
+            words.append(Segment(word, segments[i1].start, segments[i3 - 1].end, score))
+            i1 = i3
+            i3 -= 1
+        i3 += 1
+        i2 += 1
+    
+    # the last word
+    if i3 - i1 > 0:
+        segs = segments[i1: i3]
+        word = "".join([seg.label for seg in segs])
+        score = sum(seg.score * seg.length for seg in segs) / sum(seg.length for seg in segs)
+        words.append(Segment(word, segments[i1].start, segments[i3 - 1].end, score))
+        
+    return words
+
+
 # Obtain word alignments from token alignments
 def merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset=100000):
     words = []
@@ -199,11 +226,17 @@ def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_align
     segments = merge_repeats(frames, tokens, token_ids)
     # for seg in segments:
     #     print(seg)
+
+    sample_rate, text, speaker_id, utter_id, wav_path = utt_info
     
     if token_type == "phoneme" or token_type == "bpe" or token_type == "char":
         word_segments = merge_words_aux(tokens, segments, frame_alignment_aux, sp_model, aux_offset=aux_offset)
+    # elif token_type == "char":
+    #     word_segments = merge_words_without_seperator(tokens, segments, text, separator=" ")
+    # elif token_type == "bpe":
+    #     word_segments = merge_words_bpe(tokens, segments)
     else:
-        word_segments = merge_words_bpe(tokens, segments)
+        raise NotImplementedError
     
     time_start = -1
     time_end = -1
@@ -216,12 +249,10 @@ def frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_align
     phones_beg_time = [x.start * frame_dur for x in segments]
     phones_end_time = [x.end * frame_dur for x in segments]
 
-    sample_rate, text, speaker_id, utter_id, wav_path = utt_info
-
     # if len(words_text.split()) != len(text.split()):
     #     import pdb; pdb.set_trace()
 
-    assert len(words_text) == len(text.split())
+    assert len(words_text) == len(text.split()), f"{len(words_text)} vs. {len(text.split())}\n{words_text}\n{text}"
 
     return utter_id, (time_start, time_end, words_text, word_times_start, word_times_end, phones_text, phones_beg_time, phones_end_time)
 
