@@ -62,7 +62,7 @@ def ali_postprocessing_single(labels_ali, aux_labels_ali, sp_model, emission, au
      # Hard-coded for torchaudio
     labels_ali = [x - 1 if x > 0 else sp_model.blank_id for x in labels_ali]
     aux_labels_ali = [x - 1 if x > 0 else sp_model.blank_id for x in aux_labels_ali]
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
 
     ############ get confidence scores and change frame rate ############
     # Ref: https://pytorch.org/audio/main/tutorials/ctc_forced_alignment_api_tutorial.html
