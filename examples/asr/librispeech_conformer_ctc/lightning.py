@@ -186,6 +186,8 @@ class ConformerCTCModule(LightningModule):
         assert spm_vocab_size == config["spm_vocab_size"], f'{spm_vocab_size} vs {config["spm_vocab_size"]}'
         if blank_idx is None:
             self.blank_idx = spm_vocab_size
+        elif hasattr(self.sp_model, "blank_id") and self.sp_model.blank_id is not None:
+            self.blank_idx = self.sp_model.blank_id
         else:
             self.blank_idx = blank_idx
 

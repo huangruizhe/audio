@@ -15,10 +15,11 @@ class config_dict(dict):
 
 default_config = {
     # model:
-    "spm_vocab_size": 1027,
-    # "spm_vocab_size": 29,
+    # "spm_vocab_size": 1023,
+    "spm_vocab_size": 29,  # char
+    "spm_vocab_size": 1027,  # bpe
     # "spm_vocab_size": 55,
-    #"spm_vocab_size": 94,  # phoneme
+    # "spm_vocab_size": 94,  # phoneme
     # "spm_vocab_size": 181,
 
     # # Xiaohui's
