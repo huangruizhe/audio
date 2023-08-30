@@ -15,10 +15,10 @@ class config_dict(dict):
 
 default_config = {
     # model:
-    # "spm_vocab_size": 1023,
+    "spm_vocab_size": 1027,
     # "spm_vocab_size": 29,
     # "spm_vocab_size": 55,
-    "spm_vocab_size": 94,  # phoneme
+    #"spm_vocab_size": 94,  # phoneme
     # "spm_vocab_size": 181,
 
     # # Xiaohui's
@@ -88,8 +88,8 @@ default_config = {
     # # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
-        "num_symbols": 94,  # 94, 29, 1024
-        # "num_symbols": 1024,
+        # "num_symbols": 29,  # 94, 29, 1024
+        "num_symbols": 1027,
         # "hidden_dim": 1024,
         "hidden_dim": 640,
         "drop_out": 0.1,
@@ -135,7 +135,7 @@ default_config = {
 
     "subsampling_factor": 2,
 
-    "prior_scaling_factor": 0.5,
+    "prior_scaling_factor": 0.0,
     "frame_dropout": 0.0,
 
     # training:
@@ -221,7 +221,7 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
-    "model_unit": 'phoneme',  # "phoneme", "char", "bpe"
+    "model_unit": 'bpe',  # "phoneme", "char", "bpe"
     "k2_loss": True,
     "sil_penalty_inter_word": 0.0,  # The larger, the more penalty for the <sil> arcs
     "sil_penalty_intra_word": 0.0,  # 10000000000
@@ -317,7 +317,7 @@ def update_config(config, args):
 
 
 if __name__ == '__main__':
-    exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_0824_dnn533_ctc_0.0_0.0_p0.5"
+    exp_dir = "/checkpoints/lisun/ruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_0828_dnn533_ctc_0.0_0.0_bpe"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir
