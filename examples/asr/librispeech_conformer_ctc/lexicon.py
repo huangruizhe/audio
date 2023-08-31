@@ -36,6 +36,7 @@ def read_lexicon(filename: str, has_boundary=False, quiet=False, modeling_unit="
     sp_model = None
     if modeling_unit == "bpe":
         sp_model_path = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_rnnt/spm_unigram_1023.model"
+        # sp_model_path = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/spm_unigram_1023.model"
         sp_model = spm.SentencePieceProcessor(model_file=str(sp_model_path))
     elif modeling_unit == "char":
         sp_model = CharTokenizer()
@@ -112,7 +113,9 @@ def read_lexicon(filename: str, has_boundary=False, quiet=False, modeling_unit="
             if modeling_unit == "char":
                 tokens = sp_model.encode(word, out_type=str)
             elif modeling_unit == "bpe":
-                tokens = sp_model.encode(word, out_type=str)
+                # tokens = sp_model.encode(word, out_type=str)
+                tokens = sp_model.encode(word, out_type=int)
+                tokens = [sp_model.id_to_piece(t) for t in tokens]
             else:
                 print(f"modeling_unit: {modeling_unit}")
                 raise NotImplementedError
@@ -127,6 +130,11 @@ def read_lexicon(filename: str, has_boundary=False, quiet=False, modeling_unit="
 
             ans[word].append([prob, tokens])
 
+    if modeling_unit == "bpe":
+        for t in range(sp_model.vocab_size()):
+            t = sp_model.id_to_piece(t)
+            if t not in token2id:
+                token2id[t] = len(token2id)
 
     # Normalization
     for word, pron_list in ans.items():

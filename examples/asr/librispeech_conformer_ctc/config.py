@@ -16,10 +16,10 @@ class config_dict(dict):
 default_config = {
     # model:
     # "spm_vocab_size": 1023,
-    "spm_vocab_size": 29,  # char
-    "spm_vocab_size": 1027,  # bpe
-    # "spm_vocab_size": 55,
+    # "spm_vocab_size": 30,  # char
+    "spm_vocab_size": 1024,  # bpe
     # "spm_vocab_size": 94,  # phoneme
+    # "spm_vocab_size": 55,
     # "spm_vocab_size": 181,
 
     # # Xiaohui's
@@ -89,8 +89,7 @@ default_config = {
     # # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
-        # "num_symbols": 29,  # 94, 29, 1024
-        "num_symbols": 1027,
+        "num_symbols": 1024,  # 94, 30, 1024
         # "hidden_dim": 1024,
         "hidden_dim": 640,
         "drop_out": 0.1,
@@ -136,7 +135,7 @@ default_config = {
 
     "subsampling_factor": 2,
 
-    "prior_scaling_factor": 0.0,
+    "prior_scaling_factor": 0.4,
     "frame_dropout": 0.0,
 
     # training:

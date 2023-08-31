@@ -191,6 +191,9 @@ class ConformerCTCModule(LightningModule):
         else:
             self.blank_idx = blank_idx
 
+        # assert "blank_idx should be the largest among all indices"
+        assert all([self.blank_idx > i for i in self.sp_model.token2id.values() if i != self.blank_idx])
+
         self.config = config
         self.mode = "train"
         # self.mode = "pseudo"
@@ -295,30 +298,30 @@ class ConformerCTCModule(LightningModule):
         if not self.config["k2_loss"]:
             self.loss = torch_ctc_loss
         # Option 2:
-        elif self.config["model_unit"] == "bpe":
-            graph_compiler = BpeCtcTrainingGraphCompiler(
-                bpe_model=self.sp_model,
-                device=self.device,  # torch.device("cuda", self.global_rank),
-                topo_type=topo_type,
-                sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
-                sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
-            )
-            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
-        elif self.config["model_unit"] == "char":
-            graph_compiler = CharCtcTrainingGraphCompiler(
-                bpe_model=self.sp_model,
-                device=self.device,  # torch.device("cuda", self.global_rank),
-                topo_type=topo_type,
-            )
-            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
-        elif self.config["model_unit"] == "char_boundary":
-            graph_compiler = BpeCtcTrainingGraphCompiler(
-                bpe_model=self.sp_model,
-                device=self.device,  # torch.device("cuda", self.global_rank),
-                topo_type=topo_type,
-            )
-            self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
-        elif self.config["model_unit"] == "phoneme" or self.config["model_unit"] == "phoneme_boundary": # or self.config["model_unit"] == "bpe" or self.config["model_unit"] == "char":
+        # elif self.config["model_unit"] == "bpe":
+        #     graph_compiler = BpeCtcTrainingGraphCompiler(
+        #         bpe_model=self.sp_model,
+        #         device=self.device,  # torch.device("cuda", self.global_rank),
+        #         topo_type=topo_type,
+        #         sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
+        #         sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
+        #     )
+        #     self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
+        # elif self.config["model_unit"] == "char":
+        #     graph_compiler = CharCtcTrainingGraphCompiler(
+        #         bpe_model=self.sp_model,
+        #         device=self.device,  # torch.device("cuda", self.global_rank),
+        #         topo_type=topo_type,
+        #     )
+        #     self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
+        # elif self.config["model_unit"] == "char_boundary":
+        #     graph_compiler = BpeCtcTrainingGraphCompiler(
+        #         bpe_model=self.sp_model,
+        #         device=self.device,  # torch.device("cuda", self.global_rank),
+        #         topo_type=topo_type,
+        #     )
+        #     self.loss = MaximumLikelihoodLoss(graph_compiler, subsampling_factor=subsampling_factor, device=self.device)
+        elif self.config["model_unit"] == "phoneme" or self.config["model_unit"] == "phoneme_boundary" or self.config["model_unit"] == "bpe" or self.config["model_unit"] == "char":
             graph_compiler = PhonemeCtcTrainingGraphCompiler(
                 bpe_model=self.sp_model,
                 device=self.device,  # torch.device("cuda", self.global_rank),

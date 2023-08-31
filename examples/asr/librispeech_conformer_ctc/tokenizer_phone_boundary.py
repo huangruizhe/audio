@@ -9,6 +9,7 @@ class PhonemeTokenizerBoundary:
             lexicon, token2id = read_lexicon(
                 # "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.dict",
                 "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
+                # "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
                 has_boundary=has_boundary,
                 modeling_unit=modeling_unit,
             )
@@ -16,6 +17,7 @@ class PhonemeTokenizerBoundary:
             try:
                 lexicon_new_words, _ = read_lexicon(
                     "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+                    # "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
                     has_boundary=has_boundary,
                     quiet=True,
                     modeling_unit=modeling_unit,
@@ -47,11 +49,14 @@ class PhonemeTokenizerBoundary:
         self.token2id = token2id
  
         # Follow the convention in torchaudio: making blank id the largest id
-        self.token2id["-"] = len(self.token2id)
+        blank_token = "-"
+        if modeling_unit == "char" or modeling_unit == "bpe":
+            blank_token = "--"
+        self.token2id[blank_token] = len(self.token2id)
  
         self.id2token = {v: k for k, v in self.token2id.items()}
 
-        self.blank_id = self.token2id["-"]
+        self.blank_id = self.token2id[blank_token]
 
         if modeling_unit == "phoneme":
             if has_boundary:
