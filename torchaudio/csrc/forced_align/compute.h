@@ -7,7 +7,4 @@ std::tuple<torch::Tensor, torch::Tensor> forced_align(
     const torch::Tensor& targets,
     const torch::Tensor& inputLengths,
     const torch::Tensor& targetLengths,
-    const int64_t blank,
-    double inter_word_blank_penalty,
-    double intra_word_blank_penalty,
-    const torch::Tensor& word_start_positions);
+    const int64_t blank);
