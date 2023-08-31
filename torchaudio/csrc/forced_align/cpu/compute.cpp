@@ -13,10 +13,7 @@ void forced_align_impl(
     const torch::Tensor& logProbs,
     const torch::Tensor& targets,
     const int64_t blank,
-    torch::Tensor& paths,
-    double inter_word_blank_penalty,
-    double intra_word_blank_penalty,
-    const torch::Tensor& word_start_positions) {
+    torch::Tensor& paths) {
   const scalar_t kNegInfinity = -std::numeric_limits<scalar_t>::infinity();
   using target_t = typename std::
       conditional<target_scalar_type == torch::kInt, int, int64_t>::type;
@@ -56,11 +53,6 @@ void forced_align_impl(
   for (auto i = start; i < end; i++) {
     auto labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
     alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx];
-     if (labelIdx == blank) {
-        alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx] + inter_word_blank_penalty;
-     } else {
-        alphas_a[0][i] = logProbs_a[batchIndex][0][labelIdx];
-     }
   }
   for (auto t = 1; t < T; t++) {
     if (T - t <= L + R) {
@@ -87,7 +79,7 @@ void forced_align_impl(
     }
     if (start == 0) {
       alphas_a[curIdxOffset][0] =
-          alphas_a[prevIdxOffset][0] + logProbs_a[batchIndex][t][blank] + inter_word_blank_penalty;
+          alphas_a[prevIdxOffset][0] + logProbs_a[batchIndex][t][blank];
       backPtr_a[t][0] = 0;
       startloop += 1;
     }
@@ -98,16 +90,6 @@ void forced_align_impl(
       auto x2 = -std::numeric_limits<scalar_t>::infinity();
 
       auto labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
-      double blank_penalty = 0;
-      if (labelIdx == blank) {
-          if (i == 0 || i == S - 1 || word_start_positions[batchIndex][i / 2 + 1].item<bool>()) {
-              // inter-word blank
-              blank_penalty = inter_word_blank_penalty;
-          } else {
-              // intra-word blank
-              blank_penalty = intra_word_blank_penalty;
-          }
-      }
 
       // In CTC, the optimal path may optionally chose to skip a blank label.
       // x2 represents skipping a letter, and can only happen if we're not
@@ -128,7 +110,7 @@ void forced_align_impl(
         result = x0;
         backPtr_a[t][i] = 0;
       }
-      alphas_a[curIdxOffset][i] = result + logProbs_a[batchIndex][t][labelIdx] + blank_penalty;
+      alphas_a[curIdxOffset][i] = result + logProbs_a[batchIndex][t][labelIdx];
     }
   }
   auto idx1 = (T - 1) % 2;
@@ -148,10 +130,7 @@ std::tuple<torch::Tensor, torch::Tensor> compute(
     const torch::Tensor& targets,
     const torch::Tensor& inputLengths,
     const torch::Tensor& targetLengths,
-    const int64_t blank,
-    double inter_word_blank_penalty,
-    double intra_word_blank_penalty,
-    const torch::Tensor& word_start_positions) {
+    const int64_t blank) {
   TORCH_CHECK(logProbs.is_cpu(), "log_probs must be a CPU tensor");
   TORCH_CHECK(targets.is_cpu(), "targets must be a CPU tensor");
   TORCH_CHECK(
@@ -202,10 +181,10 @@ std::tuple<torch::Tensor, torch::Tensor> compute(
       logProbs.scalar_type(), "forced_align_impl", [&] {
         if (targets.scalar_type() == torch::kInt64) {
           forced_align_impl<scalar_t, torch::kInt64>(
-              logProbs, targets, blank, paths, inter_word_blank_penalty, intra_word_blank_penalty, word_start_positions);
+              logProbs, targets, blank, paths);
         } else {
           forced_align_impl<scalar_t, torch::kInt32>(
-              logProbs, targets, blank, paths, inter_word_blank_penalty, intra_word_blank_penalty, word_start_positions);
+              logProbs, targets, blank, paths);
         }
       });
   return std::make_tuple(

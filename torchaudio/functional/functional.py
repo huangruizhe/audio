@@ -2495,42 +2495,6 @@ def deemphasis(waveform, coeff: float = 0.97) -> torch.Tensor:
     return torchaudio.functional.lfilter(waveform, a_coeffs=a_coeffs, b_coeffs=b_coeffs)
 
 
-@fail_if_no_align
-def forced_align(
-    log_probs: torch.Tensor,
-    targets: torch.Tensor,
-    input_lengths: torch.Tensor,
-    target_lengths: torch.Tensor,
-    blank: int = 0,
-    inter_word_blank_penalty: float = 0,
-    intra_word_blank_penalty: float = 0,
-    word_start_positions: Optional[torch.Tensor] = None
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    r"""Computes forced alignment given the emissions from a CTC-trained model and a target label."""
-    if blank in targets:
-        raise ValueError(f"targets Tensor shouldn't contain blank index. Found {targets}.")
-    if torch.max(targets) >= log_probs.shape[-1]:
-        raise ValueError("targets values must be less than the CTC dimension")
-    if word_start_positions is None:
-        # word_start_positions = torch.Tensor([]).int()
-        # targets_shape = torch.tensor(targets.shape)
-        # targets_shape[-1:] += 1
-        # targets_shape = tuple(targets_shape.tolist())
-        word_start_positions = torch.zeros(targets.shape).bool()
-    # import pdb; pdb.set_trace()
-    paths, scores = torch.ops.torchaudio.forced_align(
-        log_probs, 
-        targets, 
-        input_lengths, 
-        target_lengths, 
-        blank, 
-        inter_word_blank_penalty, 
-        intra_word_blank_penalty, 
-        word_start_positions
-    )
-    return paths, scores
-
-
 def frechet_distance(mu_x, sigma_x, mu_y, sigma_y):
     r"""Computes the Fréchet distance between two multivariate normal distributions :cite:`dowson1982frechet`.
 

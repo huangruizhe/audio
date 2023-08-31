@@ -52,11 +52,7 @@ __global__ void falign_cuda_step_kernel(
   if (t == 0) {
     for (unsigned int i = start + threadIdx.x; i < end; i += blockDim.x) {
       int labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
-      if (labelIdx == blank) {
-          alphas_a[curIdxOffset][i] = logProbs_a[batchIndex][0][labelIdx]; //+ inter_word_blank_penalty;
-      } else {
-          alphas_a[curIdxOffset][i] = logProbs_a[batchIndex][0][labelIdx];
-      }
+      alphas_a[curIdxOffset][i] = logProbs_a[batchIndex][0][labelIdx];
     }
     return;
   }
@@ -68,7 +64,7 @@ __global__ void falign_cuda_step_kernel(
   threadMax = kNegInfinity;
   if (start == 0 && threadIdx.x == 0) {
     alphas_a[curIdxOffset][0] =
-        alphas_a[prevIdxOffset][0] + logProbs_a[batchIndex][t][blank]; //+ inter_word_blank_penalty;
+        alphas_a[prevIdxOffset][0] + logProbs_a[batchIndex][t][blank];
     threadMax = max(threadMax, alphas_a[curIdxOffset][0]);
     backPtrBuffer_a[backPtrBufferLen][0] = 0;
   }
@@ -80,19 +76,6 @@ __global__ void falign_cuda_step_kernel(
     scalar_t x1 = alphas_a[prevIdxOffset][i - 1];
     scalar_t x2 = kNegInfinity;
     int labelIdx = (i % 2 == 0) ? blank : targets_a[batchIndex][i / 2];
-
-    double blank_penalty = 0;
-    if (labelIdx == blank) {
-      auto is_word_start = word_start_positions[batchIndex][i / 2 + 1].item<bool>();
-      if (i == 0 || i == S - 1 || is_word_start) {
-        // inter-word blank
-        blank_penalty = inter_word_blank_penalty;
-      } else {
-        // intra-word blank
-        blank_penalty = intra_word_blank_penalty;
-      }
-    }
-
     if (i % 2 != 0 && i != 1 &&
         targets_a[batchIndex][i / 2] != targets_a[batchIndex][i / 2 - 1]) {
       x2 = alphas_a[prevIdxOffset][i - 2];
@@ -108,7 +91,7 @@ __global__ void falign_cuda_step_kernel(
       result = x0;
       backPtrBuffer_a[backPtrBufferLen][i] = 0;
     }
-    alphas_a[curIdxOffset][i] = result + logProbs_a[batchIndex][t][labelIdx] + blank_penalty;
+    alphas_a[curIdxOffset][i] = result + logProbs_a[batchIndex][t][labelIdx];
     threadMax = max(threadMax, alphas_a[curIdxOffset][i]);
   }
   scalar_t maxResult = BlockReduce(tempStorage).Reduce(threadMax, cub::Max());
@@ -127,10 +110,7 @@ void forced_align_impl(
     const torch::Tensor& logProbs,
     const torch::Tensor& targets,
     const int64_t blank,
-    torch::Tensor& paths,
-    double inter_word_blank_penalty,
-    double intra_word_blank_penalty,
-    const torch::Tensor& word_start_positions) {
+    torch::Tensor& paths) {
   auto defaultStream = at::cuda::getCurrentCUDAStream();
   auto cpuDataTranferStream = at::cuda::getStreamFromPool();
   const scalar_t kNegInfinity = -std::numeric_limits<scalar_t>::infinity();
@@ -269,10 +249,7 @@ std::tuple<torch::Tensor, torch::Tensor> compute(
     const torch::Tensor& targets,
     const torch::Tensor& inputLengths,
     const torch::Tensor& targetLengths,
-    const int64_t blank,
-    double inter_word_blank_penalty,
-    double intra_word_blank_penalty,
-    const torch::Tensor& word_start_positions) {
+    const int64_t blank) {
   TORCH_CHECK(logProbs.is_cuda(), "log_probs must be a CUDA tensor");
   TORCH_CHECK(targets.is_cuda(), "targets must be a CUDA tensor");
   TORCH_CHECK(
@@ -323,10 +300,10 @@ std::tuple<torch::Tensor, torch::Tensor> compute(
       logProbs.scalar_type(), "forced_align_impl", [&] {
         if (targets.scalar_type() == torch::kInt64) {
           forced_align_impl<scalar_t, torch::kInt64>(
-              logProbs, targets, blank, paths, inter_word_blank_penalty, intra_word_blank_penalty, word_start_positions);
+              logProbs, targets, blank, paths);
         } else {
           forced_align_impl<scalar_t, torch::kInt32>(
-              logProbs, targets, blank, paths, inter_word_blank_penalty, intra_word_blank_penalty, word_start_positions);
+              logProbs, targets, blank, paths);
         }
       });
   return std::make_tuple(
