@@ -202,7 +202,7 @@ class MaximumLikelihoodLoss(nn.Module):
         # Adding label priors (per batch)
         # prior_scaling_factor = 0.3
         log_probs_original = log_probs
-        if True and self.log_priors is not None:
+        if True and self.log_priors is not None and self.prior_scaling_factor > 0:
             log_probs = log_probs - self.log_priors * self.prior_scaling_factor
 
         dense_fsa_vec = k2.DenseFsaVec(
@@ -489,7 +489,7 @@ class MaximumLikelihoodLoss(nn.Module):
         log_probs = torch.roll(log_probs, 1, -1)  # Now blank symbol has the index of 0
         
         # prior_scaling_factor = 0.3
-        if True and self.log_priors is not None:
+        if True and self.log_priors is not None and self.prior_scaling_factor > 0:
             log_probs -= self.log_priors * self.prior_scaling_factor
 
         dense_fsa_vec = k2.DenseFsaVec(
