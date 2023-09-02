@@ -121,6 +121,11 @@ class Tokenizer:
         token_ids = []
         for word in sentence:
             pron = self.lexicon.get_pron(word, limit=1)
+
+            if pron is None:
+                token_ids.append(self.unk_id)
+                continue
+
             pron = pron[0][1]
             if self.has_boundary:
                 pron[0] = f"▁{pron[0]}"
