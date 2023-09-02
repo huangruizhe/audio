@@ -11,7 +11,7 @@ import sentencepiece as spm
 from tokenizer_char import CharTokenizer
 
 
-def read_lexicon(filename: str, has_boundary=False, quiet=False, modeling_unit="phoneme"):
+def read_lexicon(filename: str, has_boundary=False, quiet=False, modeling_unit="phoneme", limit_one=False):
     """Read a lexicon from `filename`.
 
     Each line in the lexicon contains "word p1 p2 p3 ...".
@@ -81,7 +81,11 @@ def read_lexicon(filename: str, has_boundary=False, quiet=False, modeling_unit="
                     if t not in token2id:
                         token2id[t] = len(token2id)
 
-                ans[word].append([prob, tokens])
+                if limit_one:
+                    if len(ans[word]) == 0:
+                        ans[word].append([prob, tokens])
+                else:
+                    ans[word].append([prob, tokens])
     else:
         with open(filename, "r", encoding="utf-8") as fin:
             # whitespace = re.compile("[ \t]+")

@@ -232,6 +232,10 @@ def update_missing_fields(d, d_ref):
     updated_or_not = False
     for k, v in d_ref.items():
         if k not in d:
+            if k == "tdnn_blstm_config" and "rnnt_config" in d:
+                continue
+            if k == "rnnt_config" and "tdnn_blstm_config" in d:
+                continue
             d[k] = d_ref[k]
             updated_or_not = True
         elif type(v) is dict:
@@ -246,7 +250,7 @@ def update_missing_fields(d, d_ref):
 def sanity_check(config):
     if "rnnt_config" in config and config["rnnt_config"] is not None:
         assert config["subsampling_factor"] == config["rnnt_config"]["time_reduction_stride"]
-        assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"] or config["spm_vocab_size"] == config["rnnt_config"]["num_symbols"]
+        assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"] or config["spm_vocab_size"] == config["rnnt_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs {config["rnnt_config"]["num_symbols"]}'
     elif "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
         subsampling_factor = 1
         for x in config["tdnn_blstm_config"]["tdnn_blstm_spec"]:
@@ -319,6 +323,7 @@ def update_config(config, args):
 if __name__ == '__main__':
     exp_dir = "/checkpoints/lisun/ruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_0828_dnn533_ctc_0.0_0.0_bpe"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
+    # exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/exp_0901/conformer_ctc_0.1_0.5_bpe_p0.0"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir
     import os

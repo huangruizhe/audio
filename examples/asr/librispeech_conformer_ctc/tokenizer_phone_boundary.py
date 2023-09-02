@@ -32,6 +32,7 @@ class PhonemeTokenizerBoundary:
             try:
                 lexicon_new_words, _ = read_lexicon(
                     "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
+                    # "/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/buckeye_words.dict",
                     has_boundary=has_boundary,
                     quiet=True,
                     modeling_unit=modeling_unit,
