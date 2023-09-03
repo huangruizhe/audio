@@ -181,10 +181,13 @@ class ConformerCTCModule(LightningModule):
 
         assert spm_vocab_size == config["spm_vocab_size"], f'{spm_vocab_size} vs {config["spm_vocab_size"]}'
         # assert "blank_idx should be the largest among all indices"
-        assert all([self.tokenizer.blank_idx > i for i in self.tokenizer.token2id.values() if i != self.tokenizer.blank_idx])
-        if config["rnnt_config"] is not None:
+        # assert all([self.tokenizer.blank_id > i for i in self.tokenizer.token2id.values() if i != self.tokenizer.blank_id])
+        assert self.tokenizer.blank_id == 0
+        if "rnnt_config" in config and config["rnnt_config"] is not None:
+            assert "tdnn_blstm_config" not in config
             assert spm_vocab_size == config["rnnt_config"]["num_symbols"]
-        if config["tdnn_blstm_config"] is not None:
+        if "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
+            assert "rnnt_config" not in config
             assert spm_vocab_size == config["tdnn_blstm_config"]["num_symbols"]
 
         self.config = config
@@ -288,7 +291,7 @@ class ConformerCTCModule(LightningModule):
 
         # Option 1:
         if not self.config["k2_loss"]:
-            self.loss = torch.nn.CTCLoss(blank=self.tokenizer.blank_idx, reduction=self.config["optim_config"]["reduction"])
+            self.loss = torch.nn.CTCLoss(blank=self.tokenizer.blank_id, reduction=self.config["optim_config"]["reduction"])
         else:
             graph_compiler = DecodingGraphCompiler(
                 tokenizer=self.tokenizer,

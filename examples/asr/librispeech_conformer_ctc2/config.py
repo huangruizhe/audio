@@ -251,14 +251,14 @@ def update_missing_fields(d, d_ref):
 def sanity_check(config):
     if "rnnt_config" in config and config["rnnt_config"] is not None:
         assert config["subsampling_factor"] == config["rnnt_config"]["time_reduction_stride"]
-        assert config["spm_vocab_size"] + 1 == config["rnnt_config"]["num_symbols"] or config["spm_vocab_size"] == config["rnnt_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs {config["rnnt_config"]["num_symbols"]}'
+        assert config["spm_vocab_size"] == config["rnnt_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs {config["rnnt_config"]["num_symbols"]}'
     elif "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
         subsampling_factor = 1
         for x in config["tdnn_blstm_config"]["tdnn_blstm_spec"]:
             if x[0] == "tdnn":
                 subsampling_factor *= x[2]
         assert config["subsampling_factor"] == subsampling_factor
-        assert config["spm_vocab_size"] == config["tdnn_blstm_config"]["num_symbols"] or config["spm_vocab_size"] + 1 == config["tdnn_blstm_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs. {config["tdnn_blstm_config"]["num_symbols"]}'
+        assert config["spm_vocab_size"] == config["tdnn_blstm_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs. {config["tdnn_blstm_config"]["num_symbols"]}'
 
 
 # https://python.land/data-processing/python-yaml

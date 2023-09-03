@@ -3,26 +3,27 @@ from argparse import ArgumentParser
 from tqdm import tqdm
 
 import sentencepiece as spm
-from tokenizer_char import CharTokenizer
-from tokenizer_char_boundary import CharTokenizerBoundary
-from tokenizer_phone_boundary import PhonemeTokenizerBoundary
+from lexicon import Lexicon
+from tokenizer import Tokenizer
 
 import torch
 from lightning import ConformerCTCModule
 from pytorch_lightning import seed_everything, Trainer
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, Callback
 from pytorch_lightning.strategies import DDPStrategy
-from transforms import get_data_module
+from transforms import get_data_module as get_data_module_librispeech
+from buckeye_transforms import get_data_module as get_data_module_buckeye
 
 from config import load_config, update_config, save_config
 import logging
+import pickle
 
-logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
 logging.basicConfig(
     format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
     level = 10
 )
+logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
 
 class MyFitStartCallback(Callback):
     def on_fit_start(self, trainer, pl_module):
@@ -85,6 +86,26 @@ class MyTrainEpochEndCallback(Callback):
             torch.save(new_log_prior, ck_path / f"log_priors_epoch_{pl_module.current_epoch}.pt")
 
 
+class MyTrainEpochEndCallbackAlignment(Callback):
+    # https://lightning.ai/docs/pytorch/stable/deploy/production_basic.html
+    # https://lightning.ai/docs/pytorch/stable/extensions/callbacks.html#on-train-epoch-end
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if pl_module.mode != "align":
+            return
+        
+        ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali"
+        ali_dir.mkdir(parents=True, exist_ok=True)
+        model_name = pathlib.Path(pl_module.config["training_config"]["checkpoint_path"]).stem
+        # torch.save(pl_module.scratch_space["ali"], ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pt")
+        print(f"Saving alignment results for worker {pl_module.global_rank}: " + str(ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pkl"))
+        with open(ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pkl", 'wb') as file:
+            pickle.dump(pl_module.scratch_space["ali"], file)
+        
+        # https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.strategies.Strategy.html#lightning.pytorch.strategies.Strategy.barrier
+        trainer.strategy.barrier()
+
+
 class MyTrainEpochEndCallback_Priors(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         # https://github.com/Lightning-AI/lightning/issues/5552
@@ -126,7 +147,63 @@ class MyTrainEpochEndCallback_Priors(Callback):
         cb.on_train_epoch_end(trainer, pl_module)
 
 
-def run_train(args, config):
+def get_tokenizer(config):
+    if config["model_unit"] == "bpe":
+        # sp_model_path = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_rnnt/spm_unigram_1023.model"
+        sp_model_path = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/spm_unigram_1023.model"
+        sp_model = spm.SentencePieceProcessor(model_file=str(sp_model_path))
+        token2id = {sp_model.id_to_piece(i): i + 1 for i in range(sp_model.vocab_size())}
+        assert "-" not in token2id
+        token2id["-"] = 0
+        blank_token = '-'
+        unk_token = '<unk>'
+        modeling_unit = "bpe"
+    elif config["model_unit"] == "char":
+        token2id = {'-': 0, '@': 1, 'e': 2, 't': 3, 'a': 4, 'o': 5, 'n': 6, 'i': 7, 'h': 8, 's': 9, 'r': 10, 'd': 11, 'l': 12, 'u': 13, 'm': 14, 'w': 15, 'c': 16, 'f': 17, 'g': 18, 'y': 19, 'p': 20, 'b': 21, 'v': 22, 'k': 23, "'": 24, 'x': 25, 'j': 26, 'q': 27, 'z': 28}
+        blank_token = '-'
+        unk_token = '@'
+        modeling_unit = "char"
+        sp_model_path = None
+    elif config["model_unit"] == "phoneme":
+        phone_set = ['ə', 'ɛ', 'd', 'ɪ', 'ɾ', 't', 'm', 'n', 'ɫ', 'i', 'ɫ̩', 'a', 'ɚ', 'ʔ', 'ɹ', 's', 'z', 'ɔ', 'ɐ', 'v', 'spn', 'ej', 'e', 'ɑ', 'ɑː', 'ɒ', 'dʲ', 'iː', 'dʒ', 'vʲ', 'ɒː', 'bʲ', 'tʃ', 'æ', 'b', 'ow', 'aj', 'cʰ', 'p', 'kʰ', 'pʰ', 'k', 'j', 'ʊ', 'ɡ', 'ʎ', 'l', 'w', 'f', 'h', 'ʉː', 'ʉ', 'uː', 'u', 'ɛː', 'ɲ', 'pʲ', 'o', 'əw', 'θ', 'tʲ', 'ʃ', 'c', 'tʰ', 'n̩', 'ŋ', 'ʒ', 'tʷ', 'mʲ', 'ç', 'ɝ', 'ɔj', 'aw', 'ɟ', 'fʲ', 'aː', 'ɜː', 'vʷ', 'kʷ', 'ɜ', 'cʷ', 'ɾʲ', 'ɡb', 'ð', 'ɾ̃', 'kp', 'ɡʷ', 'ɟʷ', 'd̪', 't̪', 'pʷ', 'm̩', 'fʷ']
+        token2id = {p: i + 1 for i, p in enumerate(phone_set)}
+        token2id["-"] = 0
+        blank_token = "-"
+        unk_token = "spn"
+        modeling_unit = "phoneme"
+        sp_model_path = None
+
+    lexicon = Lexicon(
+        # files=[
+        #     "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
+        #     "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+        #     "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
+        # ],
+        files=[
+            "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
+            "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+            "/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/buckeye_words.dict",
+        ],
+        modeling_unit=modeling_unit,
+    )
+
+    tokenizer = Tokenizer(
+        has_boundary=False,
+        modeling_unit=modeling_unit,
+        lexicon=lexicon,
+        token2id=token2id,
+        blank_token=blank_token,
+        unk_token=unk_token,
+        sp_model_path=sp_model_path,
+    )
+
+    if modeling_unit != "phoneme":
+        lexicon.populate_lexicon_with_tokenizer(tokenizer)
+
+    return tokenizer, lexicon
+
+
+def run_train_libri(args, config):
     seed_everything(1)
     checkpoint_dir = pathlib.Path(config["training_config"]["exp_dir"]) / "checkpoints"
     checkpoint = ModelCheckpoint(
@@ -163,7 +240,7 @@ def run_train(args, config):
         # max_steps=500,
         num_nodes=config["training_config"]["nodes"],
         devices=config["training_config"]["gpus"],
-        accelerator="gpu",
+        accelerator="gpu" if config["training_config"]["gpus"] > 0 else "cpu",
         strategy=DDPStrategy(find_unused_parameters=False),
         callbacks=callbacks,
         reload_dataloaders_every_n_epochs=1,
@@ -173,34 +250,85 @@ def run_train(args, config):
         # limit_val_batches=10,
     )
 
-    if config["model_unit"] == "bpe":
-        # sp_model = spm.SentencePieceProcessor(model_file=str(args.sp_model_path))
-        sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="bpe")
-    elif config["model_unit"] == "char":
-        # sp_model = CharTokenizer()
-        sp_model = PhonemeTokenizerBoundary(has_boundary=False, modeling_unit="char")
-    elif config["model_unit"] == "char_boundary":
-        sp_model = CharTokenizerBoundary()
-    elif config["model_unit"] == "phoneme":
-        sp_model = PhonemeTokenizerBoundary(has_boundary=False)
-    elif config["model_unit"] == "phoneme_boundary":
-        sp_model = PhonemeTokenizerBoundary(has_boundary=True)
-    
-    if True:
-        model = ConformerCTCModule(sp_model, config)
+    tokenizer, lexicon = get_tokenizer(config)
+    model = ConformerCTCModule(tokenizer, lexicon, config)
         
-        if trainer.global_rank == 0:
-            print(f"Model: \n{model}")
-        data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
-        trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
-    else:
-        model = ConformerCTCModule.load_from_checkpoint(config["training_config"]["checkpoint_path"], sp_model=sp_model, config=config, strict=False)    
-        model.trainer = trainer
-        
-        if trainer.global_rank == 0:
-            print(f"Model: \n{model}")
-        data_module = get_data_module(str(args.librispeech_path), str(args.global_stats_path), sp_model, config)
-        trainer.fit(model, data_module)
+    if trainer.global_rank == 0:
+        print(f"Model: \n{model}")
+    data_module = get_data_module_librispeech(str(args.librispeech_path), str(args.global_stats_path), tokenizer, config)
+    trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
+
+
+def run_train_buckeye(args, config):
+    seed_everything(1)
+    checkpoint_dir = pathlib.Path(config["training_config"]["exp_dir"]) / "checkpoints"
+    checkpoint = ModelCheckpoint(
+        checkpoint_dir,
+        monitor="Losses/val_loss",
+        mode="min",
+        save_top_k=config["training_config"]["save_top_k"],
+        save_weights_only=False,
+        verbose=True,
+        every_n_epochs=1,
+    )
+    train_checkpoint = ModelCheckpoint(
+        checkpoint_dir,
+        monitor="Losses/train_loss",
+        mode="min",
+        save_top_k=config["training_config"]["save_top_k"],
+        save_weights_only=False,
+        verbose=True,
+        every_n_epochs=1,
+    )
+    lr_monitor = LearningRateMonitor(logging_interval="step")
+
+    if args.mode == "train" or args.mode == "pseudo":
+        callbacks = [
+            checkpoint,
+            train_checkpoint,
+            lr_monitor,
+            MyFitStartCallback(),
+            MyTrainStartCallback(),
+            # MyTrainEpochEndCallback(),
+        ]
+    elif args.mode == "align":
+        callbacks = [
+            MyFitStartCallback(),
+            MyTrainStartCallback(),
+            MyTrainEpochEndCallbackAlignment()
+        ]
+
+    checkpoint_epoch = str(config["training_config"]["checkpoint_path"].stem)
+    checkpoint_epoch = int(checkpoint_epoch[6: checkpoint_epoch.find("-")])
+    assert checkpoint_epoch < config["training_config"]["epochs"]
+
+    trainer = Trainer(
+        default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
+        max_epochs=checkpoint_epoch + 2 if args.mode == "align" else config["training_config"]["epochs"],
+        num_nodes=config["training_config"]["nodes"],
+        devices=config["training_config"]["gpus"],
+        accelerator="gpu" if config["training_config"]["gpus"] > 0 else "cpu",
+        strategy=DDPStrategy(find_unused_parameters=False),
+        callbacks=callbacks,
+        reload_dataloaders_every_n_epochs=1,
+        gradient_clip_val=config["training_config"]["gradient_clip_val"],
+        # accumulate_grad_batches=3,
+        # limit_train_batches=10,
+        # min_epochs=checkpoint_epoch,
+
+        # align:
+        limit_val_batches=0,
+        num_sanity_val_steps=0
+    )
+
+    tokenizer, lexicon = get_tokenizer(config)
+    model = ConformerCTCModule(tokenizer, lexicon, config)
+
+    model.mode = args.mode
+    if trainer.global_rank == 0:
+        print(f"Model: \n{model}")
+    data_module = get_data_module_buckeye(str(args.buckeye_path), str(args.global_stats_path), tokenizer, config, train_shuffle=(model.mode!="align"))
+    trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
 
 def cli_main():
@@ -227,7 +355,15 @@ def cli_main():
         "--librispeech-path",
         type=pathlib.Path,
         help="Path to LibriSpeech datasets.",
-        required=True,
+        # required=True,
+        default=None,
+    )
+    parser.add_argument(
+        "--buckeye-path",
+        type=pathlib.Path,
+        help="Path to Buckeye datasets.",
+        # required=True,
+        default=None,
     )
     parser.add_argument(
         "--sp-model-path",
@@ -259,12 +395,23 @@ def cli_main():
         type=pathlib.Path,
         help="Path to config file.",
     )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        help="align or train (train on buckeye is actually finetune)",
+        default="align"
+    )
     args = parser.parse_args()
 
     config = load_config(args.train_config)
     config = update_config(config, args)
 
-    run_train(args, config)
+    if args.librispeech_path is not None:
+        run_train_libri(args, config)
+    elif args.buckeye_path is not None:
+        run_train_buckeye(args, config)
+    else:
+        raise NotImplementedError
 
 
 if __name__ == "__main__":
