@@ -84,7 +84,7 @@ class Trie(object):
             self_loop_bonus=0,
             blank_id=0,
             aux_offset=0,
-            modified_ctc=False,
+            modified_ctc=True,
         ):
         
         if node is None:
@@ -214,7 +214,7 @@ class DecodingGraphCompiler(object):
         self_loop_bonus=0,
         aux_offset=0,
         modeling_unit="phoneme",
-        modified_ctc=False,  # modified CTC does not require a mandatory blank between repeated tokens
+        modified_ctc=True,  # modified CTC does not require a mandatory blank between repeated tokens
     ) -> None:
         """
         Args:
@@ -382,6 +382,7 @@ def test3():
         self_loop_bonus=self_loop_bonus,
         aux_offset=aux_offset,
         modeling_unit=modeling_unit,
+        modified_ctc=True,
     )
 
     lexicon = lexicon.lexicon
@@ -472,6 +473,8 @@ def test4():
     unk_token = '<unk>'
     modeling_unit = "bpe"
 
+    
+
     aux_offset = 1000000
     sil_penalty_intra_word = 0.5
     # sil_penalty_intra_word = 100000
@@ -511,6 +514,7 @@ def test4():
         self_loop_bonus=self_loop_bonus,
         aux_offset=aux_offset,
         modeling_unit=modeling_unit,
+        modified_ctc=True,
     )
 
     lexicon = lexicon.lexicon
