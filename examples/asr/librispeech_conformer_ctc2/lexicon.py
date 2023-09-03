@@ -25,6 +25,7 @@ class Lexicon:
             for w in ans.keys():
                 if w not in self.lexicon:
                     self.lexicon[w] = ans[w]
+        logging.info(f"There are {len(self.lexicon.keys())} words and {len(self.lexicon)} entries in the lexicon")
 
 
     def read_lexicon(self, filename: str, ans = None):
