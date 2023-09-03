@@ -55,9 +55,6 @@ class Tokenizer:
             # sp_model_path = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/spm_unigram_1023.model"
             self.sp_model = spm.SentencePieceProcessor(model_file=str(sp_model_path))
     
-    def fstr(self, template, x):
-        return fstr(template, x)
-
     def get_piece_size(self):
         return len(self.token2id)
     
@@ -150,6 +147,12 @@ class Tokenizer:
             return self.encode_phoneme(sentence, out_type=out_type)
         else:
             raise NotImplementedError
+    
+    def populate_lexicon(self, files):
+        assert self.lexicon is None
+
+        self.lexicon = Lexicon(files, quiet=True)
+
 
 def test1():
     # https://pytorch.org/audio/main/tutorials/ctc_forced_alignment_api_tutorial.html
@@ -202,7 +205,8 @@ def test3():
             "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
             "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
             "/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/buckeye_words.dict",
-        ]
+        ],
+        modeling_unit="phoneme",
     )
 
     tokenizer = Tokenizer(

@@ -14,8 +14,18 @@ logging.basicConfig(
 
 
 class Lexicon:
-    def __init__(self, files) -> None:
+    def __init__(self, files, modeling_unit="phoneme") -> None:
         self.lexicon = defaultdict(list)
+
+        if len(files) == 0:
+            return 
+        
+        if modeling_unit == "phoneme":
+            self.read_lexicon_phoneme(files)
+        else:
+            self.read_lexicon_words_only(files)
+
+    def read_lexicon_phoneme(self, files):
         for f in files:
             try:
                 ans = self.read_lexicon(f)
@@ -25,8 +35,26 @@ class Lexicon:
             for w in ans.keys():
                 if w not in self.lexicon:
                     self.lexicon[w] = ans[w]
-        logging.info(f"There are {len(self.lexicon.keys())} words and {len(self.lexicon)} entries in the lexicon")
 
+        logging.info(f"There are {len(self.lexicon)} words and {sum([len(x) for x in self.lexicon.values()])} entries in the lexicon")
+
+    def read_lexicon_words_only(self, files):
+        for f in files:
+            try:
+                ans = self.read_lexicon(f)
+            except:
+                logging.info(f"Problem reading {f}")
+
+            for w in ans.keys():
+                if w not in self.lexicon:
+                    self.lexicon[w] = None
+
+        logging.info(f"There are {len(self.lexicon.keys())} words in the lexicon")
+
+    def populate_lexicon_with_tokenizer(self, tokenizer):
+        for w in self.lexicon:
+            tokens = tokenizer.encode(w, out_type=str)
+            self.lexicon[w] = [(1.0, tokens)]
 
     def read_lexicon(self, filename: str, ans = None):
         """Read a lexicon from `filename`.

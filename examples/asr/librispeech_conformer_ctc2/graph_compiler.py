@@ -5,6 +5,13 @@ import string
 import math
 import k2
 import torch
+import logging
+
+
+logging.basicConfig(
+    format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
+    level = 10
+)
 
 
 class TrieNode:
@@ -152,7 +159,7 @@ class Trie(object):
                 res.extend(_res)
             else:
                 if self.is_linear:
-                    # Step3-2-1: no recursion
+                    # Step3-2-1: no recursion, go to the last state immediately
                     if has_blank_state:
                         res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token + my_aux_offset} {weight}"))
                     if not c.mandatory_blk or not has_blank_state:
@@ -187,6 +194,11 @@ class Trie(object):
             return res, next_index
 
 
+def fstr(template, x):
+    # https://stackoverflow.com/questions/42497625/how-to-postpone-defer-the-evaluation-of-f-strings
+    return eval(f"f'''{template}'''")
+
+
 class DecodingGraphCompiler(object):
     def __init__(
         self,
@@ -194,9 +206,10 @@ class DecodingGraphCompiler(object):
         lexicon,
         device: Union[str, torch.device] = "cpu",
         topo_type = "ctc",
-        index_offset=1,  # for torchaudio's non-zero blank id
+        index_offset=0,
         sil_penalty_intra_word=0,
         sil_penalty_inter_word=0,
+        self_loop_bonus=0,
         aux_offset=0,
         modeling_unit="phoneme",
     ) -> None:
@@ -215,61 +228,54 @@ class DecodingGraphCompiler(object):
             The word piece that represents eos.
         """
 
-        sp = tokenizer
-        self.sp = sp
+        self.tokenizer = tokenizer
+        self.lexicon = lexicon
         # self.word_table = k2.SymbolTable.from_file(lang_dir / "words.txt")
         self.device = device
 
-        self.max_token_id = None
-        self.topo = None
-
+        self.modeling_unit = modeling_unit
         self.topo_type = topo_type
         self.index_offset = index_offset
+        self.aux_offset = aux_offset
         self.sil_penalty_intra_word = sil_penalty_intra_word
         self.sil_penalty_inter_word = sil_penalty_inter_word
+        self.self_loop_bonus = self_loop_bonus
 
-        self.lexicon_fst = self.make_lexicon_fst(
-            index_offset=index_offset, 
-            topo_type=topo_type, 
-            sil_penalty_intra_word=sil_penalty_intra_word,
-            sil_penalty_inter_word=sil_penalty_inter_word,
-            aux_offset=aux_offset,
-        )
+        self.lexicon_fst = self.make_lexicon_fst()
 
-    def make_lexicon_fst(self, lexicon=None, index_offset=1, topo_type="ctc", sil_penalty_intra_word=0, sil_penalty_inter_word=0, aux_offset=0):
+    def make_lexicon_fst(self, lexicon=None):
         lexicon_fst = dict()
         if lexicon is None:
-            lexicon = self.sp.lexicon
+            lexicon = self.tokenizer.lexicon.lexicon
+
+        assert self.tokenizer.blank_id == 0
+
         for w, plist in lexicon.items():
             trie = Trie()
             for prob, tokens in plist:
                 trie.insert(tokens, weight=prob)
             
-            res, next_index, last_index = trie.to_k2_str_topo(
-                token2id=self.sp.token2id, 
-                index_offset=index_offset, 
-                topo_type=topo_type, 
-                blank_id=0,
-                sil_penalty_intra_word=sil_penalty_intra_word,
-                sil_penalty_inter_word=sil_penalty_inter_word,
-                aux_offset=aux_offset,
-            )
-            lexicon_fst[w] = (res, next_index)
-        return lexicon_fst
-
-    def get_fst(self, word):
-        if word in self.lexicon_fst:
-            return self.lexicon_fst[word]
-        else:  # support new words
-            print(f"Adding new word to the lexicon: {word}")
-            lexicon_ = self.sp.add_new_word(word)
-            lexicon_fst_ = self.make_lexicon_fst(
-                lexicon=lexicon_,
+            res, last_index = trie.to_k2_str_topo(
+                token2id=self.tokenizer.token2id, 
                 index_offset=self.index_offset, 
+                aux_offset=self.aux_offset,
                 topo_type=self.topo_type, 
+                blank_id=self.tokenizer.blank_id,
                 sil_penalty_intra_word=self.sil_penalty_intra_word,
                 sil_penalty_inter_word=self.sil_penalty_inter_word,
+                self_loop_bonus=self.self_loop_bonus,
             )
+            lexicon_fst[w] = (res, last_index)
+        return lexicon_fst
+
+    def get_word_fst(self, word):  # this can support unseen words
+        if word in self.lexicon_fst:
+            return self.lexicon_fst[word]
+        elif self.modeling_unit == "char" or self.modeling_unit == "bpe":  # support new words
+            # print(f"Adding new word to the lexicon: {word}")
+            tokens = self.tokenizer.encode(word, out_type=str)
+            lexicon_ = {word: [(1.0, tokens)]}
+            lexicon_fst_ = self.make_lexicon_fst(lexicon=lexicon_)
             self.lexicon_fst.update(lexicon_fst_)
             return self.lexicon_fst[word]
 
@@ -286,15 +292,18 @@ class DecodingGraphCompiler(object):
                 if word_ in self.lexicon_fst:
                     res, _next_index = self.lexicon_fst[word_]
                 else:
-                    assert word in self.lexicon_fst, f"{word} does not have lexicon entry"
+                    if self.modeling_unit == "char" or self.modeling_unit == "bpe":
+                        res, _next_index = self.get_word_fst(word)
+                    else:
+                        assert word in self.lexicon_fst, f"{word} does not have lexicon entry"
             fsa_str += "\n"
-            fsa_str += self.sp.fstr("\n".join(res), x = next_index)
+            fsa_str += fstr("\n".join(res), x = next_index)
             next_index += _next_index
 
         blank_id = 0
-        fsa_str += f"\n{next_index} {next_index + 1} {blank_id} {blank_id} 0"  # TODO: {-sil_penalty_inter_word}
+        fsa_str += f"\n{next_index} {next_index + 1} {blank_id} {blank_id} {-self.sil_penalty_inter_word}"
         fsa_str += f"\n{next_index} {next_index + 2} -1 -1 0"
-        fsa_str += f"\n{next_index + 1} {next_index + 1} {blank_id} {blank_id} 0"  # TODO: {-sil_penalty_inter_word}
+        fsa_str += f"\n{next_index + 1} {next_index + 1} {blank_id} {blank_id} {-self.sil_penalty_inter_word}"
         fsa_str += f"\n{next_index + 1} {next_index + 2} -1 -1 0"
         fsa_str += f"\n{next_index + 2}"
         fsa_str = fsa_str.strip()
@@ -322,20 +331,23 @@ class DecodingGraphCompiler(object):
         return decoding_graphs
 
 
-def fstr(template, x):
-    # https://stackoverflow.com/questions/42497625/how-to-postpone-defer-the-evaluation-of-f-strings
-    return eval(f"f'''{template}'''")
-
-
 def test3():
-    import logging
     logging.getLogger("graphviz").setLevel(logging.WARNING)
 
     from lexicon import Lexicon
+    from tokenizer import Tokenizer
 
     phone_set = ['ə', 'ɛ', 'd', 'ɪ', 'ɾ', 't', 'm', 'n', 'ɫ', 'i', 'ɫ̩', 'a', 'ɚ', 'ʔ', 'ɹ', 's', 'z', 'ɔ', 'ɐ', 'v', 'spn', 'ej', 'e', 'ɑ', 'ɑː', 'ɒ', 'dʲ', 'iː', 'dʒ', 'vʲ', 'ɒː', 'bʲ', 'tʃ', 'æ', 'b', 'ow', 'aj', 'cʰ', 'p', 'kʰ', 'pʰ', 'k', 'j', 'ʊ', 'ɡ', 'ʎ', 'l', 'w', 'f', 'h', 'ʉː', 'ʉ', 'uː', 'u', 'ɛː', 'ɲ', 'pʲ', 'o', 'əw', 'θ', 'tʲ', 'ʃ', 'c', 'tʰ', 'n̩', 'ŋ', 'ʒ', 'tʷ', 'mʲ', 'ç', 'ɝ', 'ɔj', 'aw', 'ɟ', 'fʲ', 'aː', 'ɜː', 'vʷ', 'kʷ', 'ɜ', 'cʷ', 'ɾʲ', 'ɡb', 'ð', 'ɾ̃', 'kp', 'ɡʷ', 'ɟʷ', 'd̪', 't̪', 'pʷ', 'm̩', 'fʷ']
     token2id = {p: i + 1 for i, p in enumerate(phone_set)}
     token2id["-"] = 0
+
+    aux_offset = 1000000
+    # sil_penalty_intra_word = 0.5
+    sil_penalty_intra_word = 100000
+    sil_penalty_inter_word = 0.1
+    self_loop_bonus = 0
+    topo_type = "ctc"
+    modeling_unit = "phoneme"
 
     lexicon = Lexicon(
         files=[
@@ -344,60 +356,159 @@ def test3():
             "/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/buckeye_words.dict",
         ]
     )
+
+    tokenizer = Tokenizer(
+        has_boundary=False,
+        modeling_unit=modeling_unit,
+        lexicon=lexicon,
+        token2id=token2id,
+        blank_token='-',
+        unk_token='spn',
+        sp_model_path=None,
+    )
+
+    compiler = DecodingGraphCompiler(
+        tokenizer=tokenizer,
+        lexicon=lexicon,
+        topo_type = "ctc",
+        index_offset=0,
+        sil_penalty_intra_word=sil_penalty_intra_word,
+        sil_penalty_inter_word=sil_penalty_inter_word,
+        self_loop_bonus=self_loop_bonus,
+        aux_offset=aux_offset,
+        modeling_unit=modeling_unit,
+    )
+
     lexicon = lexicon.lexicon
 
-    aux_offset = 1000000
     for k, v in list(token2id.items()):
         token2id[f"▁{k}"] = v + aux_offset
-
-    sil_penalty_intra_word = 0.5
-    sil_penalty_inter_word = 0.1
-    self_loop_bonus = 0
-    topo_type = "ctc"
 
     text = "pen pineapple apple pen"
     # text = "THAT THE HEBREWS WERE RESTIVE UNDER THIS TYRANNY WAS NATURAL INEVITABLE"
     # text = "boy they'd pay for my high school my college and everything yknow even living expenses yknow but because i have a bachelors"
-    
-    _lexicon = dict()
-    for w in text.strip().lower().split():
-        trie = Trie()
-        for prob, tokens in lexicon[w]:
-            trie.insert(tokens, weight=prob)
+
+    if False:
+        _lexicon = dict()
+        for w in text.strip().lower().split():
+            trie = Trie()
+            for prob, tokens in lexicon[w]:
+                trie.insert(tokens, weight=prob)
+            
+            res, last_index = trie.to_k2_str_topo(
+                token2id=token2id, 
+                index_offset=0, 
+                topo_type=topo_type, 
+                sil_penalty_intra_word=sil_penalty_intra_word, 
+                sil_penalty_inter_word=sil_penalty_inter_word, 
+                self_loop_bonus=self_loop_bonus,
+                blank_id=token2id["-"], 
+                aux_offset=aux_offset
+            )
+            _lexicon[w] = (res, last_index)
+
+        fsa_str = ""
+        next_index = 0
+
+        for w in text.strip().lower().split():
+            res, _next_index = _lexicon[w]
+            fsa_str += "\n"
+            fsa_str += fstr("\n".join(res), x = next_index)
+            # print(w)
+            # print(fstr("\n".join(res), x = next_index))
+            next_index += _next_index
+
+        blank_id = token2id["-"]
+        fsa_str += f"\n{next_index} {next_index + 1} {blank_id} {blank_id} {-sil_penalty_inter_word}"
+        fsa_str += f"\n{next_index} {next_index + 2} -1 -1 0"
+        fsa_str += f"\n{next_index + 1} {next_index + 1} {blank_id} {blank_id} {-sil_penalty_inter_word}"
+        fsa_str += f"\n{next_index + 1} {next_index + 2} -1 -1 0"
+        fsa_str += f"\n{next_index + 2}"
+        # print(res)
         
-        res, last_index = trie.to_k2_str_topo(
-            token2id=token2id, 
-            index_offset=0, 
-            topo_type=topo_type, 
-            sil_penalty_intra_word=sil_penalty_intra_word, 
-            sil_penalty_inter_word=sil_penalty_inter_word, 
-            self_loop_bonus=self_loop_bonus,
-            blank_id=token2id["-"], 
-            aux_offset=aux_offset
-        )
-        _lexicon[w] = (res, last_index)
+        fsa = k2.Fsa.from_str(fsa_str.strip(), acceptor=False)
+    else:
+        fsas = compiler.compile(None, [[None, None, text]])
+        fsa = fsas[0]
 
-    fsa_str = ""
-    next_index = 0
+    fsa.labels_sym = k2.SymbolTable.from_str("\n".join([f"{k} {v}" for k, v in token2id.items()]))
+    fsa.aux_labels_sym = fsa.labels_sym
 
-    for w in text.strip().lower().split():
-        res, _next_index = _lexicon[w]
-        fsa_str += "\n"
-        fsa_str += fstr("\n".join(res), x = next_index)
-        # print(w)
-        # print(fstr("\n".join(res), x = next_index))
-        next_index += _next_index
+    fsa.draw('fsa_symbols.svg', title='An FSA with symbol table')
 
-    blank_id = token2id["-"]
-    fsa_str += f"\n{next_index} {next_index + 1} {blank_id} {blank_id} {-sil_penalty_inter_word}"
-    fsa_str += f"\n{next_index} {next_index + 2} -1 -1 0"
-    fsa_str += f"\n{next_index + 1} {next_index + 1} {blank_id} {blank_id} {-sil_penalty_inter_word}"
-    fsa_str += f"\n{next_index + 1} {next_index + 2} -1 -1 0"
-    fsa_str += f"\n{next_index + 2}"
-    # print(res)
 
-    import k2
-    fsa = k2.Fsa.from_str(fsa_str.strip(), acceptor=False)
+def test4():
+    logging.getLogger("graphviz").setLevel(logging.WARNING)
+
+    from lexicon import Lexicon
+    from tokenizer import Tokenizer
+
+    # phone_set = ['ə', 'ɛ', 'd', 'ɪ', 'ɾ', 't', 'm', 'n', 'ɫ', 'i', 'ɫ̩', 'a', 'ɚ', 'ʔ', 'ɹ', 's', 'z', 'ɔ', 'ɐ', 'v', 'spn', 'ej', 'e', 'ɑ', 'ɑː', 'ɒ', 'dʲ', 'iː', 'dʒ', 'vʲ', 'ɒː', 'bʲ', 'tʃ', 'æ', 'b', 'ow', 'aj', 'cʰ', 'p', 'kʰ', 'pʰ', 'k', 'j', 'ʊ', 'ɡ', 'ʎ', 'l', 'w', 'f', 'h', 'ʉː', 'ʉ', 'uː', 'u', 'ɛː', 'ɲ', 'pʲ', 'o', 'əw', 'θ', 'tʲ', 'ʃ', 'c', 'tʰ', 'n̩', 'ŋ', 'ʒ', 'tʷ', 'mʲ', 'ç', 'ɝ', 'ɔj', 'aw', 'ɟ', 'fʲ', 'aː', 'ɜː', 'vʷ', 'kʷ', 'ɜ', 'cʷ', 'ɾʲ', 'ɡb', 'ð', 'ɾ̃', 'kp', 'ɡʷ', 'ɟʷ', 'd̪', 't̪', 'pʷ', 'm̩', 'fʷ']
+    # token2id = {p: i + 1 for i, p in enumerate(phone_set)}
+    # token2id["-"] = 0
+    # blank_token = "-"
+    # unk_token = "spn"
+    # modeling_unit = "phoneme"
+
+    token2id = {'-': 0, '@': 1, 'e': 2, 't': 3, 'a': 4, 'o': 5, 'n': 6, 'i': 7, 'h': 8, 's': 9, 'r': 10, 'd': 11, 'l': 12, 'u': 13, 'm': 14, 'w': 15, 'c': 16, 'f': 17, 'g': 18, 'y': 19, 'p': 20, 'b': 21, 'v': 22, 'k': 23, "'": 24, 'x': 25, 'j': 26, 'q': 27, 'z': 28}
+    blank_token = '-'
+    unk_token = '@'
+    modeling_unit = "char"
+
+    aux_offset = 1000000
+    sil_penalty_intra_word = 0.5
+    # sil_penalty_intra_word = 100000
+    sil_penalty_inter_word = 0.1
+    self_loop_bonus = 0
+    topo_type = "ctc"
+
+    lexicon = Lexicon(
+        files=[
+            "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
+            "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+            "/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/buckeye_words.dict",
+        ],
+        modeling_unit=modeling_unit,
+    )
+
+    tokenizer = Tokenizer(
+        has_boundary=False,
+        modeling_unit=modeling_unit,
+        lexicon=lexicon,
+        token2id=token2id,
+        blank_token=blank_token,
+        unk_token=unk_token,
+        sp_model_path=None,
+    )
+
+    if modeling_unit != "phoneme":
+        lexicon.populate_lexicon_with_tokenizer(tokenizer)
+
+    compiler = DecodingGraphCompiler(
+        tokenizer=tokenizer,
+        lexicon=lexicon,
+        topo_type=topo_type,
+        index_offset=0,
+        sil_penalty_intra_word=sil_penalty_intra_word,
+        sil_penalty_inter_word=sil_penalty_inter_word,
+        self_loop_bonus=self_loop_bonus,
+        aux_offset=aux_offset,
+        modeling_unit=modeling_unit,
+    )
+
+    lexicon = lexicon.lexicon
+
+    for k, v in list(token2id.items()):
+        token2id[f"▁{k}"] = v + aux_offset
+
+    # text = "pen pineapple apple pen"
+    text = "pen pineappla apple pen"
+    # text = "THAT THE HEBREWS WERE RESTIVE UNDER THIS TYRANNY WAS NATURAL INEVITABLE"
+    # text = "boy they'd pay for my high school my college and everything yknow even living expenses yknow but because i have a bachelors"
+
+    fsas = compiler.compile(None, [[None, None, text]])
+    fsa = fsas[0]
+
     fsa.labels_sym = k2.SymbolTable.from_str("\n".join([f"{k} {v}" for k, v in token2id.items()]))
     fsa.aux_labels_sym = fsa.labels_sym
 
@@ -405,9 +516,5 @@ def test3():
 
 
 if __name__ == "__main__":
-    # test1()
-    # test2()
-    test3()
-
-    # TODO:
-    # 1. compose the `pronunciation graph` in test1 with `k2.ctc_topo`, we should get the results in test3
+    # test3()
+    test4()
