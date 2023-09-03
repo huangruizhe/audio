@@ -47,8 +47,8 @@ class Trie(object):
                 # create a new node in the trie
                 new_node = TrieNode(token)
                 node.children[token] = new_node
-                if new_node.token == node.token:
-                    new_node.mandatory_blk = True
+                # if new_node.token == node.token:
+                #     new_node.mandatory_blk = True
                 node = new_node
                 node.weight = weight
             
@@ -84,6 +84,7 @@ class Trie(object):
             self_loop_bonus=0,
             blank_id=0,
             aux_offset=0,
+            modified_ctc=False,
         ):
         
         if node is None:
@@ -137,7 +138,7 @@ class Trie(object):
                 # Step2: the start state or the blank state can go to the next state; the next state has self-loop
                 if has_blank_state:
                     res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token + my_aux_offset} {weight}"))
-                if not c.mandatory_blk or not has_blank_state:
+                if not c.mandatory_blk or modified_ctc or not has_blank_state:
                     res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + my_aux_offset} {weight}"))
                 res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} {self_loop_bonus}"))
                 
@@ -154,6 +155,7 @@ class Trie(object):
                     self_loop_bonus=self_loop_bonus,
                     blank_id=blank_id,
                     aux_offset=aux_offset,
+                    modified_ctc=modified_ctc,
                 )
                 next_index = _next_index
                 res.extend(_res)
@@ -162,7 +164,7 @@ class Trie(object):
                     # Step3-2-1: no recursion, go to the last state immediately
                     if has_blank_state:
                         res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token + my_aux_offset} {weight}"))
-                    if not c.mandatory_blk or not has_blank_state:
+                    if not c.mandatory_blk or modified_ctc or not has_blank_state:
                         res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token + my_aux_offset} {weight}"))
                     res.append((last_index, f"{{x + {last_index}}} {{x + {last_index}}} {token} {token} {self_loop_bonus}"))
                     next_index += 1
@@ -170,14 +172,14 @@ class Trie(object):
                     # Step2: the start state or the blank state can go to the next state; the next state has self-loop
                     if has_blank_state:
                         res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {next_index}}} {token} {token + my_aux_offset} {weight}"))
-                    if not c.mandatory_blk or not has_blank_state:
+                    if not c.mandatory_blk or modified_ctc or not has_blank_state:
                         res.append((start_index, f"{{x + {start_index}}} {{x + {next_index}}} {token} {token + my_aux_offset} {weight}"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {next_index}}} {token} {token} {self_loop_bonus}"))
 
                     # Step3-2-2: no recursion
                     if has_blank_state:
                         res.append((blank_state_index, f"{{x + {blank_state_index}}} {{x + {last_index}}} {token} {token + my_aux_offset} {weight}"))
-                    if not c.mandatory_blk or not has_blank_state:
+                    if not c.mandatory_blk or modified_ctc or not has_blank_state:
                         res.append((start_index, f"{{x + {start_index}}} {{x + {last_index}}} {token} {token + my_aux_offset} {weight}"))
                     res.append((next_index, f"{{x + {next_index}}} {{x + {last_index}}} {token} {token} {self_loop_bonus}"))
                     next_index += 1
@@ -212,6 +214,7 @@ class DecodingGraphCompiler(object):
         self_loop_bonus=0,
         aux_offset=0,
         modeling_unit="phoneme",
+        modified_ctc=False,  # modified CTC does not require a mandatory blank between repeated tokens
     ) -> None:
         """
         Args:
@@ -240,6 +243,7 @@ class DecodingGraphCompiler(object):
         self.sil_penalty_intra_word = sil_penalty_intra_word
         self.sil_penalty_inter_word = sil_penalty_inter_word
         self.self_loop_bonus = self_loop_bonus
+        self.modified_ctc = modified_ctc
 
         self.lexicon_fst = self.make_lexicon_fst()
 
@@ -264,6 +268,7 @@ class DecodingGraphCompiler(object):
                 sil_penalty_intra_word=self.sil_penalty_intra_word,
                 sil_penalty_inter_word=self.sil_penalty_inter_word,
                 self_loop_bonus=self.self_loop_bonus,
+                modified_ctc=self.modified_ctc,
             )
             lexicon_fst[w] = (res, last_index)
         return lexicon_fst
@@ -442,6 +447,7 @@ def test4():
 
     from lexicon import Lexicon
     from tokenizer import Tokenizer
+    import sentencepiece as spm
 
     # phone_set = ['ə', 'ɛ', 'd', 'ɪ', 'ɾ', 't', 'm', 'n', 'ɫ', 'i', 'ɫ̩', 'a', 'ɚ', 'ʔ', 'ɹ', 's', 'z', 'ɔ', 'ɐ', 'v', 'spn', 'ej', 'e', 'ɑ', 'ɑː', 'ɒ', 'dʲ', 'iː', 'dʒ', 'vʲ', 'ɒː', 'bʲ', 'tʃ', 'æ', 'b', 'ow', 'aj', 'cʰ', 'p', 'kʰ', 'pʰ', 'k', 'j', 'ʊ', 'ɡ', 'ʎ', 'l', 'w', 'f', 'h', 'ʉː', 'ʉ', 'uː', 'u', 'ɛː', 'ɲ', 'pʲ', 'o', 'əw', 'θ', 'tʲ', 'ʃ', 'c', 'tʰ', 'n̩', 'ŋ', 'ʒ', 'tʷ', 'mʲ', 'ç', 'ɝ', 'ɔj', 'aw', 'ɟ', 'fʲ', 'aː', 'ɜː', 'vʷ', 'kʷ', 'ɜ', 'cʷ', 'ɾʲ', 'ɡb', 'ð', 'ɾ̃', 'kp', 'ɡʷ', 'ɟʷ', 'd̪', 't̪', 'pʷ', 'm̩', 'fʷ']
     # token2id = {p: i + 1 for i, p in enumerate(phone_set)}
@@ -449,11 +455,22 @@ def test4():
     # blank_token = "-"
     # unk_token = "spn"
     # modeling_unit = "phoneme"
+    # sp_model_path = None
 
-    token2id = {'-': 0, '@': 1, 'e': 2, 't': 3, 'a': 4, 'o': 5, 'n': 6, 'i': 7, 'h': 8, 's': 9, 'r': 10, 'd': 11, 'l': 12, 'u': 13, 'm': 14, 'w': 15, 'c': 16, 'f': 17, 'g': 18, 'y': 19, 'p': 20, 'b': 21, 'v': 22, 'k': 23, "'": 24, 'x': 25, 'j': 26, 'q': 27, 'z': 28}
+    # token2id = {'-': 0, '@': 1, 'e': 2, 't': 3, 'a': 4, 'o': 5, 'n': 6, 'i': 7, 'h': 8, 's': 9, 'r': 10, 'd': 11, 'l': 12, 'u': 13, 'm': 14, 'w': 15, 'c': 16, 'f': 17, 'g': 18, 'y': 19, 'p': 20, 'b': 21, 'v': 22, 'k': 23, "'": 24, 'x': 25, 'j': 26, 'q': 27, 'z': 28}
+    # blank_token = '-'
+    # unk_token = '@'
+    # modeling_unit = "char"
+    # sp_model_path = None
+
+    sp_model_path = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/spm_unigram_1023.model"
+    sp_model = spm.SentencePieceProcessor(model_file=str(sp_model_path))
+    token2id = {sp_model.id_to_piece(i): i + 1 for i in range(sp_model.vocab_size())}
+    assert "-" not in token2id
+    token2id["-"] = 0
     blank_token = '-'
-    unk_token = '@'
-    modeling_unit = "char"
+    unk_token = '<unk>'
+    modeling_unit = "bpe"
 
     aux_offset = 1000000
     sil_penalty_intra_word = 0.5
@@ -478,7 +495,7 @@ def test4():
         token2id=token2id,
         blank_token=blank_token,
         unk_token=unk_token,
-        sp_model_path=None,
+        sp_model_path=sp_model_path,
     )
 
     if modeling_unit != "phoneme":
@@ -499,7 +516,8 @@ def test4():
     lexicon = lexicon.lexicon
 
     for k, v in list(token2id.items()):
-        token2id[f"▁{k}"] = v + aux_offset
+        # token2id[f"▁{k}"] = v + aux_offset
+        token2id[f"_{k}"] = v + aux_offset
 
     # text = "pen pineapple apple pen"
     text = "pen pineappla apple pen"
