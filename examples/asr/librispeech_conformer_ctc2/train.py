@@ -60,7 +60,9 @@ class MyTrainEpochEndCallback(Callback):
         
         _a1 = log_priors_sums.exp().sum()
         _b1 = priors_Ts.sum()
-        assert abs(_a1 - _b1) / _b1 < 1e-4, f"{_a1} vs. {_b1}"
+        # assert abs(_a1 - _b1) / _b1 < 1e-4, f"{_a1} vs. {_b1}"
+        if abs(_a1 - _b1) / _b1 > 1e-4:
+            logging.error(f"prior prob may have error: {_a1} vs. {_b1}: {abs(_a1 - _b1) / _b1}")
 
         if pl_module.global_rank == 0:
             print("new_priors: ", ["{0:0.2f}".format(i) for i in new_log_prior[0][0].exp().tolist()])

@@ -341,7 +341,7 @@ class MaximumLikelihoodLoss(nn.Module):
         return loss
     
 
-    def align(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None) -> Tensor:
+    def align(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None, enable_priors=True) -> Tensor:
         # Be careful: the targets here are already padded! We need to remove paddings from it
         supervision_segments, texts, indices = self.encode_supervisions(targets, target_lengths, input_lengths)
         token_ids = texts
@@ -355,8 +355,8 @@ class MaximumLikelihoodLoss(nn.Module):
         # log_probs = torch.roll(log_probs, 1, -1)  # Now blank symbol has the index of 0
         
         # prior_scaling_factor = 0.3
-        if True and self.log_priors is not None and self.prior_scaling_factor > 0:
-            log_probs -= self.log_priors * self.prior_scaling_factor
+        if True and enable_priors and self.log_priors is not None and self.prior_scaling_factor > 0:
+            log_probs = log_probs - self.log_priors * self.prior_scaling_factor
 
         dense_fsa_vec = k2.DenseFsaVec(
             log_probs,
