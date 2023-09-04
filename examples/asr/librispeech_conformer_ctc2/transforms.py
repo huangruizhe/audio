@@ -66,7 +66,7 @@ class GlobalStatsNormalization(torch.nn.Module):
 
 
 def _extract_labels(sp_model, samples: List):
-    targets = [sp_model.encode(sample[2].lower()) for sample in samples]
+    targets = [sp_model.encode(sample[2].lower(), out_type=int) for sample in samples]
     lengths = torch.tensor([len(elem) for elem in targets]).to(dtype=torch.int32)
     targets = torch.nn.utils.rnn.pad_sequence(
         [torch.tensor(elem) for elem in targets],

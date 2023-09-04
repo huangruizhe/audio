@@ -67,6 +67,9 @@ class MaximumLikelihoodLoss(nn.Module):
         self.prior_scaling_factor = prior_scaling_factor
         self.frame_dropout_rate = frame_dropout_rate
 
+        self.torch_ctc_loss = torch_ctc_loss
+        self.use_k2_loss = True
+
     def encode_supervisions(
         self, targets, target_lengths, input_lengths
     ) -> Tuple[torch.Tensor, Union[List[str], List[List[int]]]]:
@@ -147,6 +150,44 @@ class MaximumLikelihoodLoss(nn.Module):
         return new_log_probs, new_lengths
 
     def forward(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None, step_type="train") -> Tensor:
+        if self.use_k2_loss:
+            return self.forward_k2(log_probs, targets, input_lengths, target_lengths, samples, step_type)
+        else:
+            return self.forward_torch(log_probs, targets, input_lengths, target_lengths, samples, step_type)
+
+    def forward_torch(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None, step_type="train") -> Tensor:
+        if self.frame_dropout_rate > 0:
+            frame_dropout_rate_ = 0
+            if torch.rand(1) < 0.9:
+                frame_dropout_rate_ = torch.rand(1) * self.frame_dropout_rate
+            log_probs, input_lengths = self.frame_dropout(log_probs, input_lengths, drop_out_rate=frame_dropout_rate_, frame_length_threshold=25)
+
+        log_probs = log_probs.permute(1, 0, 2)  # (T, N, C) -> (N, T, C)
+        if True and step_type == "train":
+            log_probs_flattened = []
+            for lp, le in zip(log_probs, input_lengths):
+                log_probs_flattened.append(lp[:int(le.item())])      
+            log_probs_flattened = torch.cat(log_probs_flattened, 0)
+
+            # Note, the log_probs here is already log_softmax'ed.
+            T = log_probs_flattened.size(0)
+            self.priors_T += T
+            log_batch_priors_sum = torch.logsumexp(log_probs_flattened, dim=0, keepdim=True)
+            log_batch_priors_sum = log_batch_priors_sum.detach()
+            if self.log_priors_sum is None:
+                self.log_priors_sum = log_batch_priors_sum
+            else:
+                _temp = torch.stack([self.log_priors_sum, log_batch_priors_sum], dim=-1)
+                self.log_priors_sum = torch.logsumexp(_temp, dim=-1)
+
+        if True and self.log_priors is not None and self.prior_scaling_factor > 0:
+            log_probs = log_probs - self.log_priors * self.prior_scaling_factor
+
+        log_probs = log_probs.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
+        loss = self.torch_ctc_loss(log_probs, targets, input_lengths.int(), target_lengths.int())
+        return loss
+
+    def forward_k2(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None, step_type="train") -> Tensor:
         # print(f"(before) input_lengths={input_lengths}, log_probs.shape={log_probs.shape}")
         # input_lengths_b = input_lengths
         if self.frame_dropout_rate > 0:

@@ -21,9 +21,10 @@ import pickle
 
 logging.basicConfig(
     format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
-    level = 10
+    level = logging.INFO
 )
 logging.getLogger("lightning.pytorch").setLevel(logging.INFO)
+
 
 class MyFitStartCallback(Callback):
     def on_fit_start(self, trainer, pl_module):
@@ -239,7 +240,7 @@ def run_train_libri(args, config):
         max_epochs=config["training_config"]["epochs"],
         # max_steps=500,
         num_nodes=config["training_config"]["nodes"],
-        devices=config["training_config"]["gpus"],
+        devices=config["training_config"]["gpus"] if config["training_config"]["gpus"] > 0 else 1,
         accelerator="gpu" if config["training_config"]["gpus"] > 0 else "cpu",
         strategy=DDPStrategy(find_unused_parameters=False),
         callbacks=callbacks,
@@ -306,7 +307,7 @@ def run_train_buckeye(args, config):
         default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
         max_epochs=checkpoint_epoch + 2 if args.mode == "align" else config["training_config"]["epochs"],
         num_nodes=config["training_config"]["nodes"],
-        devices=config["training_config"]["gpus"],
+        devices=config["training_config"]["gpus"] if config["training_config"]["gpus"] > 0 else 1,
         accelerator="gpu" if config["training_config"]["gpus"] > 0 else "cpu",
         strategy=DDPStrategy(find_unused_parameters=False),
         callbacks=callbacks,

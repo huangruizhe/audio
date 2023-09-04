@@ -16,8 +16,8 @@ class config_dict(dict):
 default_config = {
     # model:
     # "spm_vocab_size": 1023,
-    # "spm_vocab_size": 30,  # char
-    "spm_vocab_size": 1024,  # bpe
+    "spm_vocab_size": 29,  # char
+    # "spm_vocab_size": 1024,  # bpe
     # "spm_vocab_size": 94,  # phoneme
     # "spm_vocab_size": 55,
     # "spm_vocab_size": 181,
@@ -89,9 +89,11 @@ default_config = {
     # # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
-        "num_symbols": 1024,  # 94, 30, 1024
-        # "hidden_dim": 1024,
+        "num_symbols": 29,    # char
+        # "num_symbols": 94,    # phoneme
+        # "num_symbols": 1024,  # bpe
         "hidden_dim": 640,
+        # "hidden_dim": 1024,
         "drop_out": 0.1,
         "tdnn_blstm_spec": [
             # ["tdnn", 5, 2],
@@ -135,7 +137,7 @@ default_config = {
 
     "subsampling_factor": 2,
 
-    "prior_scaling_factor": 0.4,
+    "prior_scaling_factor": 0.0,
     "frame_dropout": 0.0,
 
     # training:
@@ -153,7 +155,8 @@ default_config = {
 
     "optim_config": {
         # "lr_scheduler": "warmup",
-        "lr_scheduler": "simple",
+        "lr_scheduler": "step",
+        # "lr_scheduler": "simple",
         "lr": 8e-4,
         "warmup_steps": 40,
         "force_anneal_step": 120,
@@ -221,8 +224,8 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
-    "model_unit": 'bpe',  # "phoneme", "char", "bpe"
-    "k2_loss": True,
+    "model_unit": 'char',  # "phoneme", "char", "bpe"
+    "k2_loss": False,
     "sil_penalty_inter_word": 0.0,  # The larger, the more penalty for the <sil> arcs
     "sil_penalty_intra_word": 0.0,  # 10000000000
     "self_loop_bonus": 0.0,
@@ -252,6 +255,7 @@ def sanity_check(config):
     if "rnnt_config" in config and config["rnnt_config"] is not None:
         assert config["subsampling_factor"] == config["rnnt_config"]["time_reduction_stride"]
         assert config["spm_vocab_size"] == config["rnnt_config"]["num_symbols"], f'{config["spm_vocab_size"]} vs {config["rnnt_config"]["num_symbols"]}'
+        assert config["optim_config"]["lr_scheduler"] != "simple"
     elif "tdnn_blstm_config" in config and config["tdnn_blstm_config"] is not None:
         subsampling_factor = 1
         for x in config["tdnn_blstm_config"]["tdnn_blstm_spec"]:

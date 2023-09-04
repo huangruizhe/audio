@@ -9,7 +9,7 @@ import subprocess
 
 logging.basicConfig(
     format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
-    level = 10
+    level = logging.INFO
 )
 
 

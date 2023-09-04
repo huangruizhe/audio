@@ -16,7 +16,7 @@ from ctc_model import conformer_ctc_model, conformer_ctc_model_base, tdnn_blstm_
 from loss import MaximumLikelihoodLoss
 from graph_compiler import DecodingGraphCompiler
 from ali import ali_postprocessing_single, frames_postprocessing_single
-
+from torch.optim.lr_scheduler import StepLR
 
 logger = logging.getLogger()
 
@@ -74,7 +74,10 @@ class SimpleLR(torch.optim.lr_scheduler._LRScheduler):
         super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
 
     def get_lr(self):
-        return self.base_lrs
+        # return self.base_lrs
+
+        scaling_factor = 0.96 ** self._step_count
+        return [scaling_factor * base_lr for base_lr in self.base_lrs]
 
 
 def post_process_hypos(
@@ -221,6 +224,12 @@ class ConformerCTCModule(LightningModule):
             self.lr_scheduler = SimpleLR(
                 self.optimizer, 
             )
+        elif config["optim_config"]["lr_scheduler"] == "step":
+            self.lr_scheduler = StepLR(
+                self.optimizer, 
+                step_size=1, 
+                gamma=0.92,
+            )
         else:
             self.lr_scheduler = WarmupLR(
                 self.optimizer, 
@@ -289,33 +298,30 @@ class ConformerCTCModule(LightningModule):
         if frame_dropout is None:
             frame_dropout = self.config["frame_dropout"]
 
-        # Option 1:
-        if not self.config["k2_loss"]:
-            self.loss = torch.nn.CTCLoss(blank=self.tokenizer.blank_id, reduction=self.config["optim_config"]["reduction"])
-        else:
-            graph_compiler = DecodingGraphCompiler(
-                tokenizer=self.tokenizer,
-                lexicon=self.lexicon,
-                device=self.device,  # torch.device("cuda", self.global_rank),
-                topo_type=topo_type,
-                index_offset=0,
-                sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
-                sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
-                self_loop_bonus=self.config["self_loop_bonus"],
-                aux_offset=self.aux_offset,
-                modeling_unit=self.tokenizer.modeling_unit,
-                modified_ctc=True,
-            )
-            # torch_ctc_loss = torch.nn.CTCLoss(blank=self.tokenizer.blank_idx, reduction=self.config["optim_config"]["reduction"])
-            self.loss = MaximumLikelihoodLoss(
-                graph_compiler, 
-                subsampling_factor=subsampling_factor, 
-                mode=self.mode, 
-                device=self.device, 
-                prior_scaling_factor=prior_scaling_factor,
-                frame_dropout_rate=frame_dropout,
-                # torch_ctc_loss=torch_ctc_loss,
-            )
+        graph_compiler = DecodingGraphCompiler(
+            tokenizer=self.tokenizer,
+            lexicon=self.lexicon,
+            device=self.device,  # torch.device("cuda", self.global_rank),
+            topo_type=topo_type,
+            index_offset=0,
+            sil_penalty_intra_word=self.config["sil_penalty_intra_word"],
+            sil_penalty_inter_word=self.config["sil_penalty_inter_word"],
+            self_loop_bonus=self.config["self_loop_bonus"],
+            aux_offset=self.aux_offset,
+            modeling_unit=self.tokenizer.modeling_unit,
+            modified_ctc=True,
+        )
+        torch_ctc_loss = torch.nn.CTCLoss(blank=self.tokenizer.blank_id, reduction=self.config["optim_config"]["reduction"])
+        self.loss = MaximumLikelihoodLoss(
+            graph_compiler, 
+            subsampling_factor=subsampling_factor, 
+            mode=self.mode, 
+            device=self.device, 
+            prior_scaling_factor=prior_scaling_factor,
+            frame_dropout_rate=frame_dropout,
+            torch_ctc_loss=torch_ctc_loss,
+        )
+        self.loss.use_k2_loss = self.config["k2_loss"]
 
         if self.config["training_config"]["checkpoint_path"] is not None:
             checkpoint_epoch = str(pathlib.Path(self.config["training_config"]["checkpoint_path"]).stem)
@@ -448,10 +454,10 @@ class ConformerCTCModule(LightningModule):
                     continue
 
                 tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames = \
-                    ali_postprocessing_single(ali, aux_ali, self.sp_model, log_prob, aux_offset=self.aux_offset)
+                    ali_postprocessing_single(ali, aux_ali, self.tokenizer, log_prob, aux_offset=self.aux_offset)
                 
                 utter_id, rs = \
-                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, model_unit, utt_info, self.sp_model, frame_dur, self.aux_offset)
+                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, model_unit, utt_info, self.tokenizer, frame_dur, self.aux_offset)
                 
                 # if utt_info[3] == "s1301a-25":
                 #     import pdb; pdb.set_trace()
