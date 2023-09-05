@@ -86,7 +86,9 @@ class MyTrainEpochEndCallback(Callback):
         if pl_module.global_rank == 0:
             ck_path = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "checkpoints"
             ck_path.mkdir(parents=True, exist_ok=True)
-            torch.save(new_log_prior, ck_path / f"log_priors_epoch_{pl_module.current_epoch}.pt")
+            prior_path = ck_path / f"log_priors_epoch_{pl_module.current_epoch}.pt"
+            torch.save(new_log_prior, prior_path)
+            print(f"Saving priors to: {prior_path}")
 
 
 class MyTrainEpochEndCallbackAlignment(Callback):

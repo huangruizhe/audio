@@ -16,9 +16,9 @@ class config_dict(dict):
 default_config = {
     # model:
     # "spm_vocab_size": 1023,
-    "spm_vocab_size": 29,  # char
+    # "spm_vocab_size": 29,  # char
     # "spm_vocab_size": 1024,  # bpe
-    # "spm_vocab_size": 94,  # phoneme
+    "spm_vocab_size": 94,  # phoneme
     # "spm_vocab_size": 55,
     # "spm_vocab_size": 181,
 
@@ -89,8 +89,8 @@ default_config = {
     # # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
-        "num_symbols": 29,    # char
-        # "num_symbols": 94,    # phoneme
+        # "num_symbols": 29,    # char
+        "num_symbols": 94,    # phoneme
         # "num_symbols": 1024,  # bpe
         "hidden_dim": 640,
         # "hidden_dim": 1024,
@@ -224,7 +224,7 @@ default_config = {
     "updated": False,
 
     "topo_type": "ctc",
-    "model_unit": 'char',  # "phoneme", "char", "bpe"
+    "model_unit": 'phoneme',  # "phoneme", "char", "bpe"
     "k2_loss": False,
     "sil_penalty_inter_word": 0.0,  # The larger, the more penalty for the <sil> arcs
     "sil_penalty_intra_word": 0.0,  # 10000000000
@@ -326,9 +326,10 @@ def update_config(config, args):
 
 
 if __name__ == '__main__':
-    exp_dir = "/checkpoints/lisun/ruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_0828_dnn533_ctc_0.0_0.0_bpe"
+    # exp_dir = "/checkpoints/lisun/ruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_0828_dnn533_ctc_0.0_0.0_bpe"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
     # exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/exp_0901/conformer_ctc_0.1_0.5_bpe_p0.0"
+    exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2/experiments/phone_pytorch_p0.0_0.0_0.0"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir
     import os

@@ -1,6 +1,5 @@
 import logging
 import argparse
-from tqdm import tqdm
 import buckeye
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
@@ -17,6 +16,10 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import numpy as np
 
+try:
+    from tqdm_loggable.auto import tqdm
+except:
+    from tqdm import tqdm
 
 logging.basicConfig(
     format = "%(asctime)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
