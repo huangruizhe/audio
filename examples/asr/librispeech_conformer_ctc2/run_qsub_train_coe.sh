@@ -29,6 +29,7 @@ module load intel/mkl/64/2019/5.281
 which python
 nvcc --version
 nvidia-smi
+date
 
 # k2
 K2_ROOT=/exp/rhuang/meta/k2/

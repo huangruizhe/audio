@@ -574,8 +574,8 @@ def evaluate_alignments(
 
 def main(opts):
     # mapping_file = "/fsx/users/huangruizhe/mfa-models/scripts/alignment_benchmarks/mapping_files/mfa_buckeye_mapping.yaml"
-    mapping_file = "/fsx/users/huangruizhe/audio_ruizhe/mfa/mfa_buckeye_mapping.yaml"
-    # mapping_file = "/exp/rhuang/meta/audio_ruizhe/mfa/mfa_buckeye_mapping.yaml"
+    # mapping_file = "/fsx/users/huangruizhe/audio_ruizhe/mfa/mfa_buckeye_mapping.yaml"
+    mapping_file = "/exp/rhuang/meta/audio_ruizhe/mfa/mfa_buckeye_mapping.yaml"
     with open(mapping_file, 'r') as fin:
         mapping = yaml.safe_load(fin)
 

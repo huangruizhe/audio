@@ -29,6 +29,7 @@ module load intel/mkl/64/2019/5.281
 which python
 nvcc --version
 nvidia-smi
+date
 
 # k2
 K2_ROOT=/exp/rhuang/meta/k2/
@@ -61,7 +62,10 @@ export PYTHONPATH=/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2
 # exp_dir=./experiments/char_k2_p0.0_0.0_0.0_stride4
 # exp_dir=./experiments/char_k2_p0.2_0.0_0.0_stride4
 
-exp_dir=./experiments/phone_pytorch_p0.0_0.0_0.0
+# exp_dir=./experiments/phone_pytorch_p0.0_0.0_0.0
+# exp_dir=./experiments/char_k2_p0.0_0.0_0.0_lstm
+# exp_dir=./experiments/char_pytorch_p0.0_0.0_0.0_lstm
+exp_dir=./experiments/char_k2_p0.0_0.1_0.5_lstm
 
 epoch=1
 
