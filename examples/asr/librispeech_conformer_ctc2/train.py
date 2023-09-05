@@ -154,8 +154,8 @@ class MyTrainEpochEndCallback_Priors(Callback):
 
 def get_tokenizer(config):
     if config["model_unit"] == "bpe":
-        # sp_model_path = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_rnnt/spm_unigram_1023.model"
-        sp_model_path = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/spm_unigram_1023.model"
+        sp_model_path = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_rnnt/spm_unigram_1023.model"
+        # sp_model_path = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/spm_unigram_1023.model"
         sp_model = spm.SentencePieceProcessor(model_file=str(sp_model_path))
         token2id = {sp_model.id_to_piece(i): i + 1 for i in range(sp_model.vocab_size())}
         assert "-" not in token2id
@@ -179,16 +179,16 @@ def get_tokenizer(config):
         sp_model_path = None
 
     lexicon = Lexicon(
-        # files=[
-        #     "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
-        #     "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
-        #     "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
-        # ],
         files=[
-            "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
-            "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
-            "/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/buckeye_words.dict",
+            "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
+            "/fsx/users/huangruizhe/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+            "/fsx/users/huangruizhe/datasets/Buckeye_Corpus2/buckeye_words.dict",
         ],
+        # files=[
+        #     "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
+        #     "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
+        #     "/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/buckeye_words.dict",
+        # ],
         modeling_unit=modeling_unit,
     )
 
