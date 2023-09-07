@@ -34,7 +34,7 @@ default_config = {
     #     "conformer_num_heads": 8,
     #     "conformer_depthwise_conv_kernel_size": 31,
     #     "conformer_dropout": 0.1,
-    #     "num_symbols": 95, # 1024, # 95,
+    #     "num_symbols": 94,  ########
     #     "symbol_embedding_dim": 1024,
     #     "num_lstm_layers": 2,
     #     "lstm_hidden_dim": 512,
@@ -86,7 +86,7 @@ default_config = {
     #     "joiner_activation": "tanh",
     # },
 
-    # # "tdnn_blstm_config": None,
+    # "tdnn_blstm_config": None,
     "tdnn_blstm_config": {
         "input_dim": 80,
         # "num_symbols": 29,    # char
@@ -137,9 +137,6 @@ default_config = {
 
     "subsampling_factor": 2,
 
-    "prior_scaling_factor": 0.0,
-    "frame_dropout": 0.0,
-
     # training:
     "training_config": {
         "seed": 1,
@@ -163,6 +160,7 @@ default_config = {
         "anneal_factor": 0.96,        
         "batch_size": None,
         "max_tokens": 2000,
+        # "max_tokens": 1000,   # conformer stride=2
         # "max_tokens": 550,  # for stride=1, and set `accumulate_grad_batches=3` in train.py
         "train_num_buckets": 50,
         "reduction": "sum",
@@ -225,10 +223,15 @@ default_config = {
 
     "topo_type": "ctc",
     "model_unit": 'phoneme',  # "phoneme", "char", "bpe"
-    "k2_loss": False,
+    "k2_loss": True,
     "sil_penalty_inter_word": 0.0,  # The larger, the more penalty for the <sil> arcs
     "sil_penalty_intra_word": 0.0,  # 10000000000
     "self_loop_bonus": 0.0,
+
+    "prior_scaling_factor": 0.0,
+    "frame_dropout": 0.0,
+
+    "ctc_beam_size": 10,  # default: 10
 }
 
 
@@ -272,11 +275,13 @@ def load_config(config_file):
         sanity_check(default_config)
         return default_config
     
+    logging.info(f"Loading config file from: {config_file}")
     with open(config_file, 'r') as fin:
         config = yaml.safe_load(fin)
     
     _, updated_or_not = update_missing_fields(config, default_config)
     config["updated"] = updated_or_not
+    logging.info(f"The config file has been update or not? {updated_or_not}")
     sanity_check(config)
     return config
 
@@ -329,10 +334,12 @@ if __name__ == '__main__':
     # exp_dir = "/checkpoints/lisun/ruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_0828_dnn533_ctc_0.0_0.0_bpe"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
     # exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/exp_0901/conformer_ctc_0.1_0.5_bpe_p0.0"
-    exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2/experiments/phone_pytorch_p0.0_0.0_0.0"
+    # exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2/experiments/phone_pytorch_p0.0_0.0_0.0"
+    exp_dir = "/exp/rhuang/meta/audio_ruizhe/zhaoheng/exp_0906_5/dnn_phone_k2_p0.0_inter0.0_intra0.0_loop0.0_stride2"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir
     import os
     os.makedirs(f"{exp_dir}/checkpoints", exist_ok=True)
+    os.makedirs(f"{exp_dir}/ali", exist_ok=True)
     save_config(config, f"{exp_dir}/train_config.yaml", forced_save=True)
     print(f"Done: " + f"{exp_dir}/train_config.yaml")

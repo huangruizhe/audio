@@ -2,6 +2,7 @@ from typing import List, Optional, Union, Tuple
 import k2
 import torch
 from torch import Tensor, nn
+import torchaudio.functional as F
 
 from graph_compiler import DecodingGraphCompiler
 
@@ -387,6 +388,17 @@ class MaximumLikelihoodLoss(nn.Module):
             aux_labels_ali[i] = aux_ali_
 
         return labels_ali, aux_labels_ali, log_probs
+
+    def align_torchaudio_forced_align(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None, enable_priors=True) -> Tensor:
+        alignments = []
+        scores = []
+        for log_prob, target in zip(log_probs, targets):
+            alignment, score = F.forced_align(log_prob.unsqueeze(0), targets.unsqueeze(0), blank=0)
+            alignment, score = alignment[0], score[0]  # remove batch dimension for simplicity
+            score = score.exp()  # convert back to probability
+            alignments.append(alignment)
+            scores.append(score)
+        return alignments, scores
 
 
 from speechbrain.pretrained import VAD

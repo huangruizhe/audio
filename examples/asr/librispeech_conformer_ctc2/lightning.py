@@ -17,6 +17,8 @@ from loss import MaximumLikelihoodLoss
 from graph_compiler import DecodingGraphCompiler
 from ali import ali_postprocessing_single, frames_postprocessing_single
 from torch.optim.lr_scheduler import StepLR
+import torchaudio.functional as F
+
 
 logger = logging.getLogger()
 
@@ -320,6 +322,7 @@ class ConformerCTCModule(LightningModule):
             prior_scaling_factor=prior_scaling_factor,
             frame_dropout_rate=frame_dropout,
             torch_ctc_loss=torch_ctc_loss,
+            ctc_beam_size=self.config["ctc_beam_size"],
         )
         self.loss.use_k2_loss = self.config["k2_loss"]
 
@@ -464,6 +467,19 @@ class ConformerCTCModule(LightningModule):
 
                 self.scratch_space["ali"].append((utter_id, rs))
             return None
+        elif self.mode == "align_torchaudio":
+            # output, src_lengths = self.model(
+            #     batch.features,
+            #     batch.feature_lengths,
+            # )
+            # aligned_tokens, alignment_scores  = \
+            #     self.loss.align_torchaudio_forced_align(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+        
+            # for i, (ali_tokens, ali_scores) in enumerate(zip(aligned_tokens, alignment_scores)):
+            #     utt_info = batch.samples[i][1:]
+            #     token_spans = F.merge_tokens(ali_tokens, ali_scores)
+            #     word_spans = unflatten(token_spans, [len(word) for word in words])
+            pass  # TODO: torchaudio forced_align cannot support modified CTC topology where mandatory blanks between repeated tokens are not necessary
         else:
             raise NotImplementedError
 
