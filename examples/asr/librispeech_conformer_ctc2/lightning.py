@@ -18,6 +18,7 @@ from graph_compiler import DecodingGraphCompiler
 from ali import ali_postprocessing_single, frames_postprocessing_single
 from torch.optim.lr_scheduler import StepLR
 import torchaudio.functional as F
+import copy
 
 
 logger = logging.getLogger()
@@ -436,6 +437,7 @@ class ConformerCTCModule(LightningModule):
         elif self.mode == "align":
             # if batch_idx == 5:
             #     import pdb; pdb.set_trace()
+            self.model.eval()
             output, src_lengths = self.model(
                 batch.features,
                 batch.feature_lengths,
@@ -480,6 +482,53 @@ class ConformerCTCModule(LightningModule):
             #     token_spans = F.merge_tokens(ali_tokens, ali_scores)
             #     word_spans = unflatten(token_spans, [len(word) for word in words])
             pass  # TODO: torchaudio forced_align cannot support modified CTC topology where mandatory blanks between repeated tokens are not necessary
+        elif self.mode == "train_and_align":
+            steps = 2
+            temp_model = copy.deepcopy(self.model)
+            temp_model.train()
+            optimizer = torch.optim.SGD(temp_model.parameters(), lr=0.002)
+            for _ in range(steps):
+                optimizer.zero_grad()
+                output, src_lengths = temp_model(
+                    batch.features,
+                    batch.feature_lengths,
+                )
+                loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples, step_type="train")
+                loss.backward()
+                optimizer.step()
+
+            temp_model.eval()
+            output, src_lengths = temp_model(
+                batch.features,
+                batch.feature_lengths,
+            )
+            labels_ali, aux_labels_ali, log_probs = \
+                self.loss.align(output, batch.targets, src_lengths, batch.target_lengths, batch.samples)
+            
+            if "ali" not in self.scratch_space:
+                self.scratch_space["ali"] = list()
+            for i, (ali, aux_ali) in enumerate(zip(labels_ali, aux_labels_ali)):
+                log_prob = log_probs[i][:src_lengths[i].int().item()]
+                utt_info = batch.samples[i][1:]
+                model_unit = self.config["model_unit"]
+                frame_dur = self.config["subsampling_factor"] * 0.01
+
+                if len(ali) == 0:
+                    logging.warning(f"Empty ali: {utt_info}")
+                    # import pdb; pdb.set_trace()
+                    continue
+
+                tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames = \
+                    ali_postprocessing_single(ali, aux_ali, self.tokenizer, log_prob, aux_offset=self.aux_offset)
+                
+                utter_id, rs = \
+                    frames_postprocessing_single(tokens, token_ids, frame_alignment, frame_alignment_aux, frame_scores, frames, model_unit, utt_info, self.tokenizer, frame_dur, self.aux_offset)
+                
+                # if utt_info[3] == "s1301a-25":
+                #     import pdb; pdb.set_trace()
+
+                self.scratch_space["ali"].append((utter_id, rs))
+            return None
         else:
             raise NotImplementedError
 

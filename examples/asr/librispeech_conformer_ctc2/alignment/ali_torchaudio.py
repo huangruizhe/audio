@@ -55,6 +55,7 @@ class Aligner:
         global_stats_path,
         config_path,
         device="cpu",
+        eval_mode=True,
     ) -> None:
         
         if device == "cpu":
@@ -76,9 +77,15 @@ class Aligner:
             config=config,
             strict=False,
             map_location=device,
-        ).eval()
+        )
         model = model.to(device=self.device)
         model.initialize_loss_func()
+
+        # Be careful: this can impact performance. We need to choose eval mode for inference
+        if eval_mode:
+            model = model.eval()
+        else:
+            model = model.train()
 
         self.config["training_config"]["checkpoint_path"] = checkpoint_path
 

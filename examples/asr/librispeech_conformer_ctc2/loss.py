@@ -389,6 +389,9 @@ class MaximumLikelihoodLoss(nn.Module):
 
         return labels_ali, aux_labels_ali, log_probs
 
+    def train_and_align(self):
+        pass
+
     def align_torchaudio_forced_align(self, log_probs: Tensor, targets: Tensor, input_lengths: Tensor, target_lengths: Tensor, samples = None, enable_priors=True) -> Tensor:
         alignments = []
         scores = []
