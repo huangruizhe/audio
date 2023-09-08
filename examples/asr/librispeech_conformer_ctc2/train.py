@@ -326,7 +326,7 @@ def run_train_buckeye(args, config):
         num_sanity_val_steps=0
     )
 
-    if args.mode == "train_and_ali":
+    if args.mode == "train_and_align":
         assert args.gpus == 1
 
     tokenizer, lexicon = get_tokenizer(config)

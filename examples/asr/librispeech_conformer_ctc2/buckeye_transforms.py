@@ -86,79 +86,61 @@ def _extract_features(data_pipeline, samples: List, speed_perturbation=False, mu
     return features, lengths
 
 
-# def _extract_features_train(data_pipeline, samples: List):
-#     samples = [_speed_perturb_transform(sample[0].squeeze()) for sample in samples]
-    
-#     total_length = sum([sample[0].size(-1) for sample in samples])
-#     _additive_noise_transform.fetch_noise_batch(total_length)
-#     samples = [_additive_noise_transform(sample[0].squeeze()) for sample in samples]
-    
-#     mel_features = [_spectrogram_transform(sample[0].squeeze()).transpose(1, 0) for sample in samples]
-#     features = torch.nn.utils.rnn.pad_sequence(mel_features, batch_first=True)
-#     features = data_pipeline(features)
-#     lengths = torch.tensor([elem.shape[0] for elem in mel_features], dtype=torch.int32)
-#     return features, lengths
+class TrainTransform:
+    def __init__(self, global_stats_path: str, sp_model, config: dict):
+        self.sp_model = sp_model
 
+        self.config = config
+        if config["specaug_conf"]["new_spec_aug_api"]:
+            spec_aug_transform = T.SpecAugment(
+                n_time_masks=config["specaug_conf"]["n_time_masks"],
+                time_mask_param=config["specaug_conf"]["time_mask_param"],
+                p=config["specaug_conf"]["p"],
+                n_freq_masks=config["specaug_conf"]["n_freq_masks"],
+                freq_mask_param=config["specaug_conf"]["freq_mask_param"],
+                iid_masks=config["specaug_conf"]["iid_masks"],
+                zero_masking=config["specaug_conf"]["zero_masking"],
+            )
+            self.train_data_pipeline = torch.nn.Sequential(
+                FunctionalModule(_piecewise_linear_log),
+                GlobalStatsNormalization(global_stats_path),
+                FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
+                spec_aug_transform,
+                FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
+            )
+        else:
+            layers = []
+            layers.append(FunctionalModule(_piecewise_linear_log))
+            layers.append(GlobalStatsNormalization(global_stats_path))
+            layers.append(FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)))
+            for _ in range(config["specaug_conf"]["n_freq_masks"]):
+                layers.append(
+                    torchaudio.transforms.FrequencyMasking(
+                        config["specaug_conf"]["freq_mask_param"]
+                    )
+                )
+            for _ in range(config["specaug_conf"]["n_time_masks"]):
+                layers.append(
+                    torchaudio.transforms.TimeMasking(
+                        config["specaug_conf"]["time_mask_param"], 
+                        p=config["specaug_conf"]["p"]
+                    )
+                )
+            layers.append(FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)))
+            self.train_data_pipeline = torch.nn.Sequential(
+                *layers,
+            )
 
-# class TrainTransform:
-#     def __init__(self, global_stats_path: str, sp_model, config: dict):
-#         self.sp_model = sp_model
+    def __call__(self, samples: List):
+        features, feature_lengths = _extract_features(
+            self.train_data_pipeline, 
+            samples,
+            speed_perturbation=self.config["speed_perturbation"],
+            musan_noise=self.config["musan_noise"],
+        )
 
-#         self.config = config
-#         if config["specaug_conf"]["new_spec_aug_api"]:
-#             spec_aug_transform = T.SpecAugment(
-#                 n_time_masks=config["specaug_conf"]["n_time_masks"],
-#                 time_mask_param=config["specaug_conf"]["time_mask_param"],
-#                 p=config["specaug_conf"]["p"],
-#                 n_freq_masks=config["specaug_conf"]["n_freq_masks"],
-#                 freq_mask_param=config["specaug_conf"]["freq_mask_param"],
-#                 iid_masks=config["specaug_conf"]["iid_masks"],
-#                 zero_masking=config["specaug_conf"]["zero_masking"],
-#             )
-#             self.train_data_pipeline = torch.nn.Sequential(
-#                 FunctionalModule(_piecewise_linear_log),
-#                 GlobalStatsNormalization(global_stats_path),
-#                 FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
-#                 spec_aug_transform,
-#                 FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)),
-#             )
-#         else:
-#             layers = []
-#             layers.append(FunctionalModule(_piecewise_linear_log))
-#             layers.append(GlobalStatsNormalization(global_stats_path))
-#             layers.append(FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)))
-#             for _ in range(config["specaug_conf"]["n_freq_masks"]):
-#                 layers.append(
-#                     torchaudio.transforms.FrequencyMasking(
-#                         config["specaug_conf"]["freq_mask_param"]
-#                     )
-#                 )
-#             for _ in range(config["specaug_conf"]["n_time_masks"]):
-#                 layers.append(
-#                     torchaudio.transforms.TimeMasking(
-#                         config["specaug_conf"]["time_mask_param"], 
-#                         p=config["specaug_conf"]["p"]
-#                     )
-#                 )
-#             layers.append(FunctionalModule(partial(torch.transpose, dim0=1, dim1=2)))
-#             self.train_data_pipeline = torch.nn.Sequential(
-#                 *layers,
-#             )
-
-#     def __call__(self, samples: List):
-#         # if self.config["speed_perturbation"] is None or self.config["speed_perturbation"] is False:
-#         #     features, feature_lengths = _extract_features(self.train_data_pipeline, samples)
-#         # else:
-#         #     features, feature_lengths = _extract_features_train(self.train_data_pipeline, samples)
-#         features, feature_lengths = _extract_features(
-#             self.train_data_pipeline, 
-#             samples,
-#             speed_perturbation=self.config["speed_perturbation"],
-#             musan_noise=self.config["musan_noise"],
-#         )
-
-#         targets, target_lengths = _extract_labels(self.sp_model, samples)
-#         return Batch(features, feature_lengths, targets, target_lengths, samples)
+        targets, target_lengths = _extract_labels(self.sp_model, samples)
+        return Batch(features, feature_lengths, targets, target_lengths, samples)
 
 
 class ValTransform:
@@ -192,8 +174,8 @@ def get_data_module(buckeye_path, global_stats_path, sp_model, config, train_shu
         global _additive_noise_transform
         _additive_noise_transform = AddNoise(musan, snr=tuple(config["musan_noise"]["snr"]), p=config["musan_noise"]["p"])
 
-    # train_transform = TrainTransform(global_stats_path=global_stats_path, sp_model=sp_model, config=config)
-    transform = TestTransform(global_stats_path=global_stats_path, sp_model=sp_model)
+    transform = TrainTransform(global_stats_path=global_stats_path, sp_model=sp_model, config=config)
+    # transform = TestTransform(global_stats_path=global_stats_path, sp_model=sp_model)
     # test_transform = TestTransform(global_stats_path=global_stats_path, sp_model=sp_model)
     return BuckeyeDataModule(
         buckeye_path=buckeye_path,
