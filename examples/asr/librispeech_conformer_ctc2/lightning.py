@@ -331,7 +331,7 @@ class ConformerCTCModule(LightningModule):
             checkpoint_epoch = str(pathlib.Path(self.config["training_config"]["checkpoint_path"]).stem)
             checkpoint_epoch = int(checkpoint_epoch[6: checkpoint_epoch.find("-")])
             _exp_dir = pathlib.Path(self.config["training_config"]["checkpoint_path"]).parent
-            if self.mode == "train":
+            if self.mode == "train": # or self.mode == "train_and_align"
                 log_priors_path = _exp_dir / f"log_priors_epoch_{checkpoint_epoch}.pt"
             else:
                 log_priors_path = _exp_dir / f"log_priors_epoch_{checkpoint_epoch - 1}.pt"
@@ -486,16 +486,22 @@ class ConformerCTCModule(LightningModule):
             steps = 2
             temp_model = copy.deepcopy(self.model)
             temp_model.train()
-            optimizer = torch.optim.SGD(temp_model.parameters(), lr=0.002)
-            for _ in range(steps):
-                optimizer.zero_grad()
-                output, src_lengths = temp_model(
-                    batch.features,
-                    batch.feature_lengths,
-                )
-                loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples, step_type="train")
-                loss.backward()
-                optimizer.step()
+            optimizer = torch.optim.SGD(temp_model.parameters(), lr=0.0001)
+            # import pdb; pdb.set_trace()
+            try:
+                for _ in range(steps):
+                    optimizer.zero_grad()
+                    output, src_lengths = temp_model(
+                        batch.features,
+                        batch.feature_lengths,
+                    )
+                    loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, batch.samples, step_type="train")
+                    loss.backward()
+                    optimizer.step()
+            except:
+                temp_model = self.model
+
+            # temp_model = self.model
 
             temp_model.eval()
             output, src_lengths = temp_model(
@@ -528,6 +534,7 @@ class ConformerCTCModule(LightningModule):
                 #     import pdb; pdb.set_trace()
 
                 self.scratch_space["ali"].append((utter_id, rs))
+            # self.trainer.strategy.barrier()
             return None
         else:
             raise NotImplementedError

@@ -37,6 +37,19 @@ def get_sample_lengths(buckeye_dataset):
     return sample_lengths
 
 
+def get_sample_lengths_and_speakers(buckeye_dataset):
+    sample_lengths = []
+    speakers = []
+
+    for i in range(len(buckeye_dataset)):
+        waveform, sample_rate, text, speaker_id, utter_id, wav_file = \
+            buckeye_dataset[i]
+        sample_lengths.append(len(text))
+        speakers.append(speaker_id)
+
+    return sample_lengths, speakers
+
+
 class CustomBucketDataset(torch.utils.data.Dataset):
     def __init__(
         self,
@@ -82,6 +95,64 @@ class CustomBucketDataset(torch.utils.data.Dataset):
         return len(self.batches)
 
 
+class CustomSpeakerDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        dataset,
+        lengths,
+        speakers,
+        max_tokens,
+        num_buckets,
+        batch_size=None,
+    ):
+        super().__init__()
+
+        assert len(dataset) == len(lengths)
+
+        self.dataset = dataset
+
+        speakers_info = speakers
+
+        idx_length_buckets = [(idx, length, speakers_info[idx]) for idx, length in enumerate(lengths)]
+        sorted_idx_length_buckets = sorted(idx_length_buckets, key=lambda x: (x[2], [1]))
+        self.batches = self._batch_by_token_count_and_speaker(
+            sorted_idx_length_buckets,
+            max_tokens,
+            batch_size=batch_size,
+        )
+
+    def _batch_by_token_count_and_speaker(self, idx_list, max_tokens, batch_size=None):
+        batches = []
+        current_batch = []
+        current_token_count = 0
+        cur_speaker = None
+        for idx, target_length, spk in idx_list:
+            if spk != cur_speaker:
+                if len(current_batch) > 0:
+                    batches.append(current_batch)
+                    current_batch = [idx]
+                    current_token_count = target_length
+                cur_speaker = spk
+            elif current_token_count + target_length > max_tokens or (batch_size and len(current_batch) == batch_size):
+                batches.append(current_batch)
+                current_batch = [idx]
+                current_token_count = target_length
+            else:
+                current_batch.append(idx)
+                current_token_count += target_length
+
+        if current_batch:
+            batches.append(current_batch)
+
+        return batches
+
+    def __getitem__(self, idx):
+        return [self.dataset[subidx] for subidx in self.batches[idx]]
+
+    def __len__(self):
+        return len(self.batches)
+
+
 class TransformDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, transform_fn):
         self.dataset = dataset
@@ -109,6 +180,7 @@ class BuckeyeDataModule(LightningDataModule):
         super().__init__()
         self.buckeye_path = buckeye_path
         self.dataset_lengths = None
+        self.speakers = None
         self.transform = transform
         self.max_tokens = max_tokens
         self.batch_size = batch_size
@@ -147,6 +219,39 @@ class BuckeyeDataModule(LightningDataModule):
     def val_dataloader(self):
         return self.train_dataloader()
     
+    def train_speaker_dataloader(self):
+        datasets = [BUCKEYE(self.buckeye_path)]
+
+        if not self.dataset_lengths:
+            self.dataset_lengths = []
+            self.speakers = []
+            for dataset in datasets:
+                sample_lengths, speakers = get_sample_lengths_and_speakers(dataset)
+                self.dataset_lengths.append(sample_lengths)
+                self.speakers.append(speakers)
+
+        dataset = torch.utils.data.ConcatDataset(
+            [
+                CustomSpeakerDataset(
+                    dataset,
+                    lengths,
+                    speakers,
+                    self.max_tokens,
+                    self.num_buckets,
+                    batch_size=self.batch_size,
+                )
+                for dataset, lengths, speakers in zip(datasets, self.dataset_lengths, self.speakers)
+            ]
+        )
+        dataset = TransformDataset(dataset, self.transform)
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            num_workers=self.num_workers,
+            batch_size=None,
+            shuffle=self.train_shuffle,
+        )
+        return dataloader
+
     # def val_dataloader(self):
     #     datasets = [
     #         self.librispeech_cls(self.librispeech_path, url="dev-clean"),

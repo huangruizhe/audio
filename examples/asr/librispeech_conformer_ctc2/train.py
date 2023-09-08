@@ -96,7 +96,7 @@ class MyTrainEpochEndCallbackAlignment(Callback):
     # https://lightning.ai/docs/pytorch/stable/extensions/callbacks.html#on-train-epoch-end
 
     def on_train_epoch_end(self, trainer, pl_module):
-        if pl_module.mode != "align":
+        if pl_module.mode != "align" and pl_module.mode != "train_and_align":
             return
         
         ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali"
@@ -296,7 +296,7 @@ def run_train_buckeye(args, config):
             MyTrainStartCallback(),
             # MyTrainEpochEndCallback(),
         ]
-    elif args.mode == "align":
+    elif args.mode == "align" or args.mode == "train_and_align":
         callbacks = [
             MyFitStartCallback(),
             MyTrainStartCallback(),
@@ -309,7 +309,7 @@ def run_train_buckeye(args, config):
 
     trainer = Trainer(
         default_root_dir=pathlib.Path(config["training_config"]["exp_dir"]),
-        max_epochs=checkpoint_epoch + 2 if args.mode == "align" else config["training_config"]["epochs"],
+        max_epochs=checkpoint_epoch + 2 if "align" in args.mode else config["training_config"]["epochs"],
         num_nodes=config["training_config"]["nodes"],
         devices=config["training_config"]["gpus"] if config["training_config"]["gpus"] > 0 else 1,
         accelerator="gpu" if config["training_config"]["gpus"] > 0 else "cpu",
@@ -326,13 +326,20 @@ def run_train_buckeye(args, config):
         num_sanity_val_steps=0
     )
 
+    if args.mode == "train_and_ali":
+        assert args.gpus == 1
+
     tokenizer, lexicon = get_tokenizer(config)
     model = ConformerCTCModule(tokenizer, lexicon, config)
 
     model.mode = args.mode
     if trainer.global_rank == 0:
         print(f"Model: \n{model}")
+
     data_module = get_data_module_buckeye(str(args.buckeye_path), str(args.global_stats_path), tokenizer, config, train_shuffle=(model.mode!="align"))
+    if model.mode == "train_and_align":
+        data_module.train_dataloader = data_module.train_speaker_dataloader
+
     trainer.fit(model, data_module, ckpt_path=config["training_config"]["checkpoint_path"])
 
 

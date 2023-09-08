@@ -428,7 +428,9 @@ def evaluate_alignments(
         ali_files = {f.stem: str(f) for f in map(Path, ali_files)}
     elif ali_file_pattern.endswith(".pkl"):  # TorchAudio
         ali_files = {}
-        for f in glob.glob(f"{ali_dir}/{ali_file_pattern}", recursive=True):
+        fns = glob.glob(f"{ali_dir}/{ali_file_pattern}", recursive=True)
+        logging.info(f"ali_files: {fns}")
+        for f in fns:
             ali_files.update(read_pt_file(f))
     else:
         raise NotImplementedError
