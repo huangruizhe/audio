@@ -167,15 +167,15 @@ class TestTransform:
         return self.val_transforms(sample)
 
 
-def get_data_module(buckeye_path, global_stats_path, sp_model, config, train_shuffle=True):
+def get_data_module(buckeye_path, global_stats_path, sp_model, config, train_shuffle=True, dataset_name="BUCKEYE"):
     if config["musan_noise"]:
         subsets = config["musan_noise"]["subsets"]
         musan = Musan(musan_path, subsets)
         global _additive_noise_transform
         _additive_noise_transform = AddNoise(musan, snr=tuple(config["musan_noise"]["snr"]), p=config["musan_noise"]["p"])
 
-    transform = TrainTransform(global_stats_path=global_stats_path, sp_model=sp_model, config=config)
-    # transform = TestTransform(global_stats_path=global_stats_path, sp_model=sp_model)
+    # transform = TrainTransform(global_stats_path=global_stats_path, sp_model=sp_model, config=config)
+    transform = TestTransform(global_stats_path=global_stats_path, sp_model=sp_model)
     # test_transform = TestTransform(global_stats_path=global_stats_path, sp_model=sp_model)
     return BuckeyeDataModule(
         buckeye_path=buckeye_path,
@@ -184,4 +184,5 @@ def get_data_module(buckeye_path, global_stats_path, sp_model, config, train_shu
         max_tokens=config["optim_config"]["max_tokens"],
         num_buckets=config["optim_config"]["train_num_buckets"],
         train_shuffle=train_shuffle,
+        dataset_name=dataset_name,
     )

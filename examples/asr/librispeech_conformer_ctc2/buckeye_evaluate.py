@@ -383,7 +383,7 @@ def get_ctm_list(filename):
             read_textgrid_file(filename)
         
     words_ctm_list = [
-        CtmInterval(begin=beg, end=end, label=w.lower()) for w, beg, end in zip(words, words_start, words_end)
+        CtmInterval(begin=beg, end=end, label=w.lower().replace("▁", "")) for w, beg, end in zip(words, words_start, words_end)
     ]
 
     phones_ctm_list = [
@@ -551,7 +551,7 @@ def evaluate_alignments(
         print("reference,hypothesis,count\n", file=fout)
         for k, v in sorted(phone_confusions.items(), key=lambda x: -x[1]):
             print(f"{k[0]},{k[1]},{v}", file=fout)
-    logging.info(f"Phone boundary error: {score_sum/score_count}")
+    logging.info(f"Phone boundary error: {score_sum/score_count} = {score_sum} / {score_count}")
     logging.info(f"Phone boundary error (begin): {score_sum_begin/score_count}")
     logging.info(f"Phone boundary error (end): {score_sum_end/score_count}")
     logging.info("")
@@ -578,6 +578,7 @@ def main(opts):
     # mapping_file = "/fsx/users/huangruizhe/mfa-models/scripts/alignment_benchmarks/mapping_files/mfa_buckeye_mapping.yaml"
     # mapping_file = "/fsx/users/huangruizhe/audio_ruizhe/mfa/mfa_buckeye_mapping.yaml"
     mapping_file = "/exp/rhuang/meta/audio_ruizhe/mfa/mfa_buckeye_mapping.yaml"
+    # mapping_file = "/exp/rhuang/meta/audio_ruizhe/mfa/mfa_timit_mapping.yaml"
     with open(mapping_file, 'r') as fin:
         mapping = yaml.safe_load(fin)
 

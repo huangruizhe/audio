@@ -334,8 +334,8 @@ if __name__ == '__main__':
     # exp_dir = "/checkpoints/lisun/ruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_0828_dnn533_ctc_0.0_0.0_bpe"
     # exp_dir = "/fsx/users/huangruizhe/audio/examples/asr/librispeech_conformer_ctc/experiments/exp_20230803_12"
     # exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/exp_0901/conformer_ctc_0.1_0.5_bpe_p0.0"
-    # exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2/experiments/phone_pytorch_p0.0_0.0_0.0"
-    exp_dir = "/exp/rhuang/meta/audio_ruizhe/zhaoheng/exp_0906_5/dnn_phone_k2_p0.0_inter0.0_intra0.0_loop0.0_stride2"
+    exp_dir = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2/experiments/dnn_phone_k2_p0.0_inter0.0_intra0.0_loop0.0_stride2"
+    # exp_dir = "/exp/rhuang/meta/audio_ruizhe/zhaoheng/exp_0906_5/dnn_phone_k2_p0.0_inter0.0_intra0.0_loop0.0_stride2"
     config = load_config(None)
     config["training_config"]["exp_dir"] = exp_dir
     import os

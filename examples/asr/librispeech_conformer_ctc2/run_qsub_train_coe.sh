@@ -5,7 +5,7 @@
 #$ -j y -o log/log-$JOB_NAME-$JOB_ID.out
 #$ -M ruizhe@jhu.edu
 #$ -m e
-#$ -l mem_free=20G,h_rt=600:00:00,gpu=1
+#$ -l mem_free=20G,h_rt=600:00:00,gpu=4
 #$ -q gpu.q@@v100
 
 # #$ -q gpu.q@@v100
@@ -50,6 +50,7 @@ echo "current path:" `pwd`
 export PYTHONPATH=/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2:$PYTHONPATH
 
 # train
+# exp_dir=./experiments/char_pytorch_p0.0_0.0_0.0
 # exp_dir=./experiments/char_k2_p0.0_0.2_0.7
 # exp_dir=./experiments/char_k2_p0.0_0.0_0.0_lstm
 # exp_dir=./experiments/char_k2_p0.0_0.1_0.5_lstm
@@ -61,6 +62,8 @@ export PYTHONPATH=/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2
 # exp_dir=./experiments/char_k2_p0.2_0.0_0.0_stride4
 # exp_dir=./experiments/phone_pytorch_p0.0_0.0_0.0
 # exp_dir=./experiments/phone_k2_p0.0_0.0_0.0
+# exp_dir=experiments/dnn_phone_k2_p0.35_inter0.0_intra0.0_loop0.0_stride2/
+exp_dir=/exp/rhuang/meta/audio_ruizhe/zhaoheng/temp/dnn_bpe_k2_p0.3_inter0.0_intra0.0_loop0.0_stride2/
 
 echo
 echo "exp_dir:" $exp_dir
@@ -73,5 +76,5 @@ python train.py \
   --sp-model-path ./spm_unigram_1023.model \
   --epochs 10 \
   --nodes 1 \
-  --gpus 1 \
-  --train-config $exp_dir/train_config.yaml # --checkpoint-path experiments/char_k2_p0.0_0.0_0.0_stride4/checkpoints/epoch=4-step=32684.ckpt
+  --gpus 4 \
+  --train-config $exp_dir/train_config.yaml --checkpoint-path $exp_dir/checkpoints/epoch=6-step=*.ckpt

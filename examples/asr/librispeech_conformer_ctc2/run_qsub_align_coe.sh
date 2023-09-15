@@ -6,7 +6,7 @@
 #$ -M ruizhe@jhu.edu
 #$ -m e
 #$ -l mem_free=20G,h_rt=600:00:00,gpu=1
-#$ -q gpu.q@@v100
+#$ -q gpu.q@@rtx
 
 # #$ -q gpu.q@@v100
 # #$ -q gpu.q@@rtx
@@ -65,9 +65,14 @@ export PYTHONPATH=/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc2
 # exp_dir=./experiments/phone_pytorch_p0.0_0.0_0.0
 # exp_dir=./experiments/char_k2_p0.0_0.0_0.0_lstm
 # exp_dir=./experiments/char_pytorch_p0.0_0.0_0.0_lstm
-exp_dir=./experiments/char_k2_p0.0_0.1_0.5_lstm
+# exp_dir=./experiments/char_k2_p0.0_0.1_0.5_lstm
 
-epoch=1
+# exp_dir=/exp/rhuang/meta/audio_ruizhe/zhaoheng/temp/dnn_phone_pytorch_p0.0_inter0.0_intra0.0_loop0.0_stride2/
+# exp_dir=/exp/rhuang/meta/audio_ruizhe/zhaoheng/temp/dnn_phone_k2_p0.3_inter0.0_intra0.0_loop0.0_stride1
+exp_dir=/exp/rhuang/meta/audio_ruizhe/zhaoheng/temp/dnn_phone_k2_p0.3_inter0.0_intra0.0_loop0.0_stride2/
+# exp_dir=/exp/rhuang/meta/audio_ruizhe/zhaoheng/temp/dnn_bpe_k2_p0.3_inter0.0_intra0.0_loop0.0_stride2/
+
+epoch=6
 
 echo
 echo "exp_dir:" $exp_dir
@@ -75,6 +80,7 @@ echo
 
 # align
 buckeye=/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/temp3/
+# buckeye=/exp/rhuang/timit/data/TEST/
 python train.py \
   --exp-dir $exp_dir \
   --buckeye-path $buckeye \
@@ -85,7 +91,7 @@ python train.py \
   --gpus 1 \
   --train-config $exp_dir/train_config.yaml \
   --mode align \
-  --checkpoint-path $exp_dir/checkpoints/epoch=$epoch-*.ckpt
+  --checkpoint-path $exp_dir/checkpoints/epoch=$epoch-*.ckpt  # --dataset-name "TIMIT"
 
 # evaluate
 ali_pattern="ali_epoch=$epoch-*.pkl"

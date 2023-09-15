@@ -143,6 +143,20 @@ def merge_repeats(frames, tokens, token_ids):
             )
         )
         i1 = i2
+    
+    # An heuristics of processing each segment: if the segment is too short, we will extend it by a constant length
+    # segments = segments_heuristics(segments, thres=2)
+
+    return segments
+
+
+def segments_heuristics(segments, thres=3):
+    for seg1, seg2 in zip(segments, segments[1:] + [None]):
+        if seg1.end - seg1.start >= thres:
+            continue
+        t1 = seg1.start + thres
+        t2 = seg2.start if seg2 is not None else 1e10
+        seg1.end = min(t1, t2)
     return segments
 
 

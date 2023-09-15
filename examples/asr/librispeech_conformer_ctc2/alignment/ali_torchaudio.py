@@ -192,6 +192,7 @@ class Aligner:
                 self.model.aux_offset
             )
 
+        self.scratch_space["log_prob"] = log_prob
         return tokens, token_ids, frame_alignment, frame_scores, frames, token_spans, word_spans
 
 

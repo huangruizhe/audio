@@ -5,6 +5,7 @@ import torch
 import torchaudio
 from pytorch_lightning import LightningDataModule
 from buckeye_dataset import BUCKEYE
+from timit_dataset import TIMIT
 
 
 def _batch_by_token_count(idx_target_lengths, max_tokens, batch_size=None):
@@ -176,6 +177,7 @@ class BuckeyeDataModule(LightningDataModule):
         num_buckets=50,
         train_shuffle=True,
         num_workers=10,
+        dataset_name="BUCKEYE",
     ):
         super().__init__()
         self.buckeye_path = buckeye_path
@@ -187,9 +189,15 @@ class BuckeyeDataModule(LightningDataModule):
         self.num_buckets = num_buckets
         self.train_shuffle = train_shuffle
         self.num_workers = num_workers
+        self.dataset_name = dataset_name
 
     def train_dataloader(self):
-        datasets = [BUCKEYE(self.buckeye_path)]
+        if self.dataset_name == "BUCKEYE":
+            datasets = [BUCKEYE(self.buckeye_path)]
+        elif self.dataset_name == "TIMIT":
+            datasets = [TIMIT(self.buckeye_path)]
+        else:
+            raise NotImplementedError
 
         if not self.dataset_lengths:
             self.dataset_lengths = [get_sample_lengths(dataset) for dataset in datasets]

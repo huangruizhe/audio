@@ -99,7 +99,12 @@ class MyTrainEpochEndCallbackAlignment(Callback):
         if pl_module.mode != "align" and pl_module.mode != "train_and_align":
             return
         
-        ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali"
+        if "dataset_name" not in pl_module.scratch_space or pl_module.scratch_space["dataset_name"] == "BUCKEYE":
+            ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali"
+        elif pl_module.scratch_space["dataset_name"] == "TIMIT":
+            ali_dir = pathlib.Path(pl_module.config["training_config"]["exp_dir"]) / "ali_timit"
+        else:
+            raise NotImplementedError
         ali_dir.mkdir(parents=True, exist_ok=True)
         model_name = pathlib.Path(pl_module.config["training_config"]["checkpoint_path"]).stem
         # torch.save(pl_module.scratch_space["ali"], ali_dir / f"ali_{model_name}_{pl_module.global_rank}.pt")
@@ -188,6 +193,7 @@ def get_tokenizer(config):
             "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.prob.dict",
             "/exp/rhuang/meta/audio_ruizhe/librispeech_conformer_ctc/librispeech_english_us_mfa.new_words.dict",
             "/exp/rhuang/buckeye/datasets/Buckeye_Corpus2/buckeye_words.dict",
+            "/exp/rhuang/timit/timit_words.dict",
         ],
         modeling_unit=modeling_unit,
     )
@@ -251,12 +257,13 @@ def run_train_libri(args, config):
         reload_dataloaders_every_n_epochs=1,
         gradient_clip_val=config["training_config"]["gradient_clip_val"],
         # accumulate_grad_batches=3,
-        # limit_train_batches=100,
+        # limit_train_batches=800,
         # limit_val_batches=10,
     )
 
     tokenizer, lexicon = get_tokenizer(config)
     model = ConformerCTCModule(tokenizer, lexicon, config)
+    model.scratch_space["dataset_name"] = args.dataset_name
         
     if trainer.global_rank == 0:
         print(f"Model: \n{model}")
@@ -294,13 +301,13 @@ def run_train_buckeye(args, config):
             lr_monitor,
             MyFitStartCallback(),
             MyTrainStartCallback(),
-            # MyTrainEpochEndCallback(),
+            MyTrainEpochEndCallback(),  # compute and save priors
         ]
     elif args.mode == "align" or args.mode == "train_and_align":
         callbacks = [
             MyFitStartCallback(),
             MyTrainStartCallback(),
-            MyTrainEpochEndCallbackAlignment()
+            MyTrainEpochEndCallbackAlignment(),  # save alignments
         ]
 
     checkpoint_epoch = str(config["training_config"]["checkpoint_path"].stem)
@@ -336,7 +343,14 @@ def run_train_buckeye(args, config):
     if trainer.global_rank == 0:
         print(f"Model: \n{model}")
 
-    data_module = get_data_module_buckeye(str(args.buckeye_path), str(args.global_stats_path), tokenizer, config, train_shuffle=(model.mode!="align"))
+    data_module = get_data_module_buckeye(
+        str(args.buckeye_path), 
+        str(args.global_stats_path), 
+        tokenizer, 
+        config, 
+        train_shuffle=(model.mode!="align"),
+        dataset_name=args.dataset_name,
+    )
     if model.mode == "train_and_align":
         data_module.train_dataloader = data_module.train_speaker_dataloader
 
@@ -412,6 +426,12 @@ def cli_main():
         type=str,
         help="align or train (train on buckeye is actually finetune)",
         default="align"
+    )
+    parser.add_argument(
+        "--dataset-name",
+        type=str,
+        help="align or train (train on buckeye is actually finetune)",
+        default="BUCKEYE"
     )
     args = parser.parse_args()
 
