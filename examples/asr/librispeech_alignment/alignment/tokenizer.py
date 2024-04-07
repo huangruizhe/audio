@@ -14,6 +14,9 @@ class TokenizerInterface(ABC):
     OUTPUT: 
            [[75], [47], [7], [629, 218]]
         or [[[75]], [[47]], [[7]], [[629, 218], [123, 456]]] in case a word has multiple pronunciations
+    
+    Note:
+    1. It should include two special tokens: <blk> and <unk>, where the token id for <blk> should be 0
     '''
 
     @abstractmethod
@@ -25,11 +28,14 @@ class EnglishCharTokenizer(TokenizerInterface):
     def __init__(
         self,
         token2id,
-        unk_id=0,
+        blk_token,
+        unk_token,
     ):
         super().__init__()
         self.token2id = token2id.copy()
-        self.unk_id = unk_id  # <unk> token should already be in `token2id`
+        self.unk_id = token2id[unk_token]  # <unk> token should already be in `token2id`
+        self.blk_id = token2id[blk_token]
+        assert self.blk_id == 0
         self.id2token = {v: k for k, v in self.token2id.items()}
     
     def encode(self, sentence, out_type: type = int):
@@ -46,10 +52,13 @@ class EnglishBPETokenizer(TokenizerInterface):
     def __init__(
         self,
         sp_model,
-        unk_id=0,
+        blk_token,
+        unk_token,
     ):
         super().__init__()
-        self.unk_id = unk_id
+        self.unk_id = sp_model.piece_to_id(unk_token)
+        self.blk_id = sp_model.piece_to_id(blk_token)
+        assert self.blk_id == 0
         self.sp_model = sp_model
         self.start_token_ids = {i for i in range(sp_model.vocab_size()) if sp_model.id_to_piece(i).startswith("▁")}
 
@@ -84,6 +93,8 @@ class EnglishPhonemeTokenizer(TokenizerInterface):
 
     def __init__(
         self,
+        blk_token="<blk>",
+        unk_token="<unk>",
     ):
         # Importing them can be slow. So we only do it when needed
         try:
@@ -96,10 +107,11 @@ class EnglishPhonemeTokenizer(TokenizerInterface):
         self.cmu = cmudict.dict()
         self.g2p = G2p()
 
-        self.token2id = {p: i for i, (p, _) in enumerate(cmudict.phones())}  # Note: we don't model stress level here
-        self.unk = "<unk>"
+        self.token2id = {p: i + 1 for i, (p, _) in enumerate(cmudict.phones())}  # Note: we don't model stress level here
+        self.token2id[blk_token] = 0
+        self.unk_token = unk_token
         self.unk_id = len(self.token2id)
-        self.token2id[self.unk] = self.unk_id
+        self.token2id[unk_token] = self.unk_id
 
         self.id2token = {v: k for k, v in self.token2id.items()}
     
@@ -109,7 +121,7 @@ class EnglishPhonemeTokenizer(TokenizerInterface):
         else:
             pron = self.g2p(word)
             if len(pron) == 0:  # e.g., word = "你好"
-                pron = [self.unk]
+                pron = [self.unk_token]
             prons = [pron]
         
         prons = [tuple(re.sub(r'\d', '', p) for p in pron) for pron in prons]  # remove stress level
@@ -151,7 +163,8 @@ def test1():
 
     tokenizer = EnglishCharTokenizer(
         token2id={c: i for i, c in enumerate(labels)},
-        unk_id=1,
+        blk_token="-",
+        unk_token="|",
     )
     print(tokenizer.encode(transcript))
     print(tokenizer.decode(tokenizer.encode(transcript)))
@@ -164,7 +177,8 @@ def test2():
 
     tokenizer = EnglishCharTokenizer(
         token2id={c: i for i, c in enumerate(labels)},
-        unk_id=1,
+        blk_token="-",
+        unk_token="-",
     )
     print(tokenizer.encode(transcript))
     print(tokenizer.decode(tokenizer.encode(transcript)))
@@ -174,8 +188,9 @@ def test3():
     sp_model_path = "/exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc/spm_unigram_1023.model"
     sp_model = spm.SentencePieceProcessor(model_file=str(sp_model_path))
     tokenizer = EnglishBPETokenizer(
-        unk_id=sp_model.piece_to_id("<unk>"),
         sp_model=sp_model,
+        blk_token="<s>",  # You have to make sure these tokens are in the sp model 
+        unk_token="<unk>",
     )
     # transcript = "i had that curiosity beside me at this moment"
     # transcript = "i had that curiosity beside me at this moment 你好"
