@@ -20,7 +20,7 @@ class TokenizerInterface(ABC):
     '''
 
     @abstractmethod
-    def encode(self, sentence, out_type: type = int):
+    def encode(self, sentence, out_type=int):
         raise NotImplementedError
 
 
@@ -38,7 +38,7 @@ class EnglishCharTokenizer(TokenizerInterface):
         assert self.blk_id == 0
         self.id2token = {v: k for k, v in self.token2id.items()}
     
-    def encode(self, sentence, out_type: type = int):
+    def encode(self, sentence, out_type=int):
         # Assume that `sentence` is already in the correct casing
         token_ids = [[self.token2id.get(c, self.unk_id) for c in w] for w in sentence.split()]
         return token_ids
@@ -72,7 +72,7 @@ class EnglishBPETokenizer(TokenizerInterface):
         rs.append(token_ids[word_start:])
         return rs[1:]
 
-    def encode(self, sentence, out_type: type = int):
+    def encode(self, sentence, out_type=int):
         sentence = sentence.strip()
         token_ids = self.sp_model.encode(sentence, out_type=out_type)
         token_ids = self.get_word_boundaries(token_ids)
@@ -115,9 +115,10 @@ class EnglishPhonemeTokenizer(TokenizerInterface):
 
         self.id2token = {v: k for k, v in self.token2id.items()}
     
-    def get_word_pron(self, word):
+    def get_word_pron(self, word, num_prons=None):
         if word in self.cmu:
             prons = self.cmu[word]
+            prons = prons[:num_prons]
         else:
             pron = self.g2p(word)
             if len(pron) == 0:  # e.g., word = "你好"
@@ -128,12 +129,12 @@ class EnglishPhonemeTokenizer(TokenizerInterface):
         prons = list(set(prons))  # remove duplicates
         return prons
 
-    def encode(self, sentence, out_type: type = int):
+    def encode(self, sentence, num_prons=None, out_type=int):
         sentence = sentence.strip().lower()
 
         # This will be a list of lists
         tokens = [
-            self.get_word_pron(w) for w in sentence.split()
+            self.get_word_pron(w, num_prons) for w in sentence.split()
         ]
         token_ids = [
             [[self.token2id[p] for p in pron] for pron in prons] for prons in tokens

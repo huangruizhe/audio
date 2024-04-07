@@ -15,8 +15,17 @@ def convert_long_text_to_fst(items, sp, pid, results):
     return libri_long_text_sp
 
 
+def flatten_list(lst):
+    return [item for sublist in lst for item in (flatten_list(sublist) if isinstance(sublist, list) else [sublist])]
+
+
 def make_factor_transducer1(word_id_list, return_str=False, blank_penalty=0):
-    # This is the original, simplest factor transducer for a "linear" fst
+    # This is the original, simplest factor transducer for a "linear" fst.
+    # We can enter at [any non-eps state], and we can exit at [any state]
+
+    # TODO: for the moment, we only consider `word_id_list` as a list of integers.
+    # That is, each word has only one tokenization
+    word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
@@ -29,7 +38,7 @@ def make_factor_transducer1(word_id_list, return_str=False, blank_penalty=0):
     arcs = [tuple(map(int, a.split())) for a in arcs]
     # ss, ee, l1, l2, w = arc
 
-    non_eps_nodes = set((arc[1], arc[3]) for arc in arcs if arc[3] > -1)   # if this node has a non-eps in-coming arc
+    non_eps_nodes = set((arc[1], arc[3]) for arc in arcs if arc[3] > 0)   # if this node has a non-eps in-coming arc
     arcs += [(0, n, l, l, 0) for n, l in non_eps_nodes if n > 1]
 
     arcs += [(n, final_state, -1, -1, 0) for n in range(1, final_state - 2)]
@@ -53,7 +62,11 @@ def make_factor_transducer2(word_id_list, return_str=False, blank_penalty=-1):
     # This is the factor transducer where blank symbols at the beginning and ending of the graph is penalized
     # Last resort: use a cheap alignment model to get a subgraph of the big graph first
 
-    # blank_penalty should be negative
+    # blank_penalty should be negative:
+    # -- this is because in k2, the weights on the arcs are interpreted as "log-probs"
+    # -- we prefer the arc weights the larger the better
+
+    word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
@@ -96,7 +109,9 @@ def make_factor_transducer2(word_id_list, return_str=False, blank_penalty=-1):
 
 def make_factor_transducer3(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
     # This is a modification of make_factor_transducer1, where the factors are on "word-level"
-    # That is, the words always come as a whole
+    # That is, the words always come as a whole. We can only enter at word-starts and exits at word-ends.
+
+    word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
@@ -140,31 +155,10 @@ def make_factor_transducer3(word_id_list, word_start_symbols, return_str=False, 
         return fst
 
 
-# class WordCounter: 
-#     def __init__(self): 
-#         self.counter1 = 0 
-#         self.counter2 = 1; self.counter2_ = 0
-#         self.counter3 = 0
-#     # def __call__(self): self.counter += 1; return self.counter
-#     def f1(self): 
-#         self.counter1 += 1; return self.counter1
-#     def f2(self): 
-#         self.counter2_ += 1; 
-#         if self.counter2_ % 2 == 1: self.counter2 += 1; 
-#         return self.counter2
-#     def f3(self): 
-#         self.counter3 += 1; return self.counter3
-#     def c1(self): return self.counter1
-#     def c2(self): return self.counter2
-#     def c3(self): return self.counter3
-#     def reset(self): 
-#         self.counter1 = 0
-#         self.counter2 = 1; self.counter2_ = 0
-#         self.counter3 = 0
-
-
 def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
     # This is a modification of make_factor_transducer3, but we only output word indices instead of word symbols
+
+    word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
@@ -216,13 +210,17 @@ def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, 
 
 def make_factor_transducer4_bigram(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
     # This is a modification of make_factor_transducer4, but we just use a bigram graph instead of a factor transducer
+    # This will be similar to gentle: https://github.com/lowerquality/gentle/blob/master/gentle/language_model.py
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
+    raise NotImplementedError
 
 
 def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=False, blank_penalty=0, skip_penalty=-0.5, return_penalty=None, noneps_bonus=0.0):
     # This is a modification of make_factor_transducer4, but we allow skip arcs instead of a factor transducer
     # `skip_penalty` is good for breaking ties: it prefers the shorter path without skips
+
+    word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
