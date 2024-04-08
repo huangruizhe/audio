@@ -16,7 +16,83 @@ def convert_long_text_to_fst(items, sp, pid, results):
 
 
 def flatten_list(lst):
-    return [item for sublist in lst for item in (flatten_list(sublist) if isinstance(sublist, list) else [sublist])]
+    # return [item for sublist in lst for item in (flatten_list(sublist) if isinstance(sublist, list) else [sublist])]
+    return [item for w in lst for item in (w[0] if isinstance(w[0], list) else w)]
+
+
+def make_ctc_graph(word_id_list, return_str=False):
+    '''
+    `word_id_list` is the tokenization for a sentence.
+    It is of the following format:
+    - [[75], [47], [7], [629, 218]]
+    - or [[[75]], [[47]], [[7]], [[629, 218], [123, 456]]] in case a word has multiple pronunciations
+    '''
+
+    word_starts = []
+    word_ends = []
+
+    # flatten
+    word_id_list_flattened = flatten_list(word_id_list)
+
+    arcs = []
+    start_state = 0
+    end_state = 2*len(word_id_list_flattened) + 1
+
+    eps = 0
+    
+    prev_blk_state = start_state
+    prev_non_blk_state = None
+    prev_p = None
+    token_cnt = 0
+    
+    for w in word_id_list:
+        # `w` is the list of tokens for this word
+        assert len(w) > 0, f"len(w)={len(w)}, w={w}, word_id_list={word_id_list}"
+
+        if isinstance(w[0], list):
+            # TODO: for the moment, we only consider `word_id_list` as a list of integers.
+            # That is, each word has only one tokenization
+            # Otherwise, if the word has multiple tokenizations, we take only the first one
+            w = w[0]
+        
+        for p in w:
+            # `p` is the token
+            cur_state = 2*token_cnt + 1
+
+            if prev_non_blk_state is not None:
+                if p != prev_p:
+                    arcs.append((prev_non_blk_state, cur_state, p, p, 0))
+                arcs.append((prev_non_blk_state, prev_blk_state, eps, eps, 0))
+
+            if prev_blk_state is not None:
+                arcs.append((prev_blk_state, prev_blk_state, eps, eps, 0))
+                arcs.append((prev_blk_state, cur_state, p, p, 0))
+
+            arcs.append((cur_state, cur_state, p, eps, 0))
+
+            prev_non_blk_state = cur_state
+            prev_blk_state = cur_state + 1
+            prev_p = p
+            
+            token_cnt += 1
+
+    assert prev_non_blk_state == end_state - 2, f"cur_state={prev_non_blk_state}, end_state={end_state}"
+    arcs.append((prev_non_blk_state, end_state, -1, -1, 0))
+    arcs.append((prev_non_blk_state, prev_blk_state, eps, eps, 0))
+    arcs.append((prev_blk_state, prev_blk_state, eps, eps, 0))
+    arcs.append((prev_blk_state, end_state, -1, -1, 0))
+    arcs.append((end_state,))
+
+    new_arcs = sorted(arcs, key=lambda arc: arc[0])
+    new_arcs = [" ".join(map(str, arc)) for arc in new_arcs]
+    new_arcs = "\n".join(new_arcs)
+
+    if return_str:
+        return new_arcs
+    else:
+        fst = k2.Fsa.from_str(new_arcs, acceptor=False)
+        fst = k2.arc_sort(fst)
+        return fst
 
 
 def make_factor_transducer1(word_id_list, return_str=False, blank_penalty=0):
