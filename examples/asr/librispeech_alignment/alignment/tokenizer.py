@@ -60,6 +60,7 @@ class EnglishBPETokenizer(TokenizerInterface):
         self.blk_id = sp_model.piece_to_id(blk_token)
         assert self.blk_id == 0
         self.sp_model = sp_model
+        self.token2id = {sp_model.id_to_piece(i): i for i in range(sp_model.vocab_size())}
         self.start_token_ids = {i for i in range(sp_model.vocab_size()) if sp_model.id_to_piece(i).startswith("▁")}
 
     def get_word_boundaries(self, token_ids):
