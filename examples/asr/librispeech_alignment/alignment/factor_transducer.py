@@ -38,13 +38,13 @@ def make_ctc_graph(word_id_list, return_str=False):
     final_state = 2*len(word_id_list_flattened) + 1
 
     eps = 0
+    # arc: (ss, ee, l1, l2, weight)
+    arcs.append((start_state, start_state, eps, eps, 0))
     
     prev_blk_state = start_state
     prev_non_blk_state = None
     prev_p = None
     token_cnt = 0
-
-    # arc: (ss, ee, l1, l2, weight)
     
     for w in word_id_list:
         # `w` is the list of tokens for this word
@@ -56,31 +56,36 @@ def make_ctc_graph(word_id_list, return_str=False):
             # Otherwise, if the word has multiple tokenizations, we take only the first one
             w = w[0]
         
+        # For each word/token, we do the following:
+        # 1) link the graph of this word/token to the existing graph
+        # 2) draw the graph of this word/token
+        
         for p in w:
             # `p` is the token
-            cur_state = 2*token_cnt + 1
+            cur_non_blk_state = 2*token_cnt + 1
+            cur_blk_state = cur_non_blk_state + 1
 
+            # 1) link it to the existing graph
             if prev_non_blk_state is not None:
                 if p != prev_p:
-                    arcs.append((prev_non_blk_state, cur_state, p, p, 0))
-                arcs.append((prev_non_blk_state, prev_blk_state, eps, eps, 0))
+                    arcs.append((prev_non_blk_state, cur_non_blk_state, p, p, 0))
 
             if prev_blk_state is not None:
-                arcs.append((prev_blk_state, prev_blk_state, eps, eps, 0))
-                arcs.append((prev_blk_state, cur_state, p, p, 0))
+                arcs.append((prev_blk_state, cur_non_blk_state, p, p, 0))
 
-            arcs.append((cur_state, cur_state, p, eps, 0))
+            # 2) draw the graph of this token
+            arcs.append((cur_non_blk_state, cur_non_blk_state, p, eps, 0))
+            arcs.append((cur_non_blk_state, cur_blk_state, eps, eps, 0))
+            arcs.append((cur_blk_state, cur_blk_state, eps, eps, 0))
 
-            prev_non_blk_state = cur_state
-            prev_blk_state = cur_state + 1
+            prev_non_blk_state = cur_non_blk_state
+            prev_blk_state = cur_blk_state
             prev_p = p
             
             token_cnt += 1
 
     assert prev_non_blk_state == final_state - 2, f"cur_state={prev_non_blk_state}, final_state={final_state}"
     arcs.append((prev_non_blk_state, final_state, -1, -1, 0))
-    arcs.append((prev_non_blk_state, prev_blk_state, eps, eps, 0))
-    arcs.append((prev_blk_state, prev_blk_state, eps, eps, 0))
     arcs.append((prev_blk_state, final_state, -1, -1, 0))
     arcs.append((final_state,))
 
@@ -102,7 +107,7 @@ def make_factor_transducer_basic(word_id_list, return_str=False, blank_penalty=0
         We can enter at *any non-eps state*, and we can exit at *any state*.
         The blank symbols at the beginning and ending of the graph can be penalized.
 
-        `blank_penalty` should be negative:
+        `blank_penalty` should be negative (e.g., blank_penalty=-1.0):
         -- this is because in k2, the weights on the arcs are interpreted as "log-probs"
         -- we prefer the arc weights the larger the better
     '''
@@ -114,6 +119,7 @@ def make_factor_transducer_basic(word_id_list, return_str=False, blank_penalty=0
     final_state = 2*len(word_id_list_flattened) + 1
 
     eps = 0
+    arcs.append((start_state, start_state, eps, eps, blank_penalty))
     
     prev_blk_state = start_state
     prev_non_blk_state = None
@@ -146,7 +152,8 @@ def make_factor_transducer_basic(word_id_list, return_str=False, blank_penalty=0
                     arcs.append((start_state, prev_non_blk_state, prev_p, prev_p, 0))
 
             if prev_blk_state is not None:
-                arcs.append((prev_blk_state, prev_blk_state, eps, eps, 0))
+                if prev_blk_state > 0:  # we handle the first state separately
+                    arcs.append((prev_blk_state, prev_blk_state, eps, eps, 0))
                 arcs.append((prev_blk_state, cur_state, p, p, 0))
 
             arcs.append((cur_state, cur_state, p, eps, 0))
@@ -227,7 +234,7 @@ def make_factor_transducer2(word_id_list, return_str=False, blank_penalty=-1):
     # -- this is because in k2, the weights on the arcs are interpreted as "log-probs"
     # -- we prefer the arc weights the larger the better
 
-    word_id_list = flatten_list(word_id_list)
+    # word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
@@ -272,7 +279,7 @@ def make_factor_transducer3(word_id_list, word_start_symbols, return_str=False, 
     # This is a modification of make_factor_transducer1, where the factors are on "word-level"
     # That is, the words always come as a whole. We can only enter at word-starts and exits at word-ends.
 
-    word_id_list = flatten_list(word_id_list)
+    # word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
@@ -319,7 +326,7 @@ def make_factor_transducer3(word_id_list, word_start_symbols, return_str=False, 
 def make_factor_transducer4(word_id_list, word_start_symbols, return_str=False, blank_penalty=0):
     # This is a modification of make_factor_transducer3, but we only output word indices instead of word symbols
 
-    word_id_list = flatten_list(word_id_list)
+    # word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
@@ -381,7 +388,7 @@ def make_factor_transducer4_skip(word_id_list, word_start_symbols, return_str=Fa
     # This is a modification of make_factor_transducer4, but we allow skip arcs instead of a factor transducer
     # `skip_penalty` is good for breaking ties: it prefers the shorter path without skips
 
-    word_id_list = flatten_list(word_id_list)
+    # word_id_list = flatten_list(word_id_list)
 
     fst_graph = k2.ctc_graph([word_id_list], modified=False, device='cpu')[0]
 
