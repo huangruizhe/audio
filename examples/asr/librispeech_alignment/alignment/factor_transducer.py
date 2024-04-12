@@ -124,6 +124,9 @@ def make_factor_transducer_basic(word_id_list, return_str=False, blank_penalty=0
     prev_non_blk_state = None
     prev_p = None
     token_cnt = 0
+
+    # TODO:
+    # 1. We may better model disfluencies ['uh', 'um'] as in: https://github.com/lowerquality/gentle/blob/master/align.py#L39C1-L39C33
     
     for w in word_id_list:
         # `w` is the list of tokens for this word
@@ -297,7 +300,11 @@ def make_factor_transducer_word_level_index(word_id_list, return_str=False, blan
     eps = 0
     # arc: (ss, ee, l1, l2, weight)
     arcs.append((start_state, start_state, eps, eps, blank_penalty))
-    
+
+    word_index_sym_tab = {eps: eps, 1: 0}  # need to handle special cases
+    token_sym_tab = {eps: eps}
+    sym_id = 1
+
     prev_blk_state = start_state
     prev_non_blk_state = None
     prev_p = None
@@ -321,59 +328,61 @@ def make_factor_transducer_word_level_index(word_id_list, return_str=False, blan
         len_w = len(w)
         for i_p, p in enumerate(w):
             # `p` is the token
-            cur_non_blk_state = 2*token_cnt + 1
+            cur_non_blk_state = 2 * token_cnt + 1
             cur_blk_state = cur_non_blk_state + 1
+            
+            token_sym_tab[sym_id] = p
 
             # 1) link it to the existing graph
             if prev_non_blk_state is not None:
                 if p != prev_p:
+                    arcs.append((prev_non_blk_state, cur_non_blk_state, p, sym_id, 0))
                     if i_p == 0:
-                        arcs.append((prev_non_blk_state, cur_non_blk_state, p, i_w + 1, 0))
-                    else:
-                        arcs.append((prev_non_blk_state, cur_non_blk_state, p, 0, 0))
+                        word_index_sym_tab[sym_id] = i_w
 
             if prev_blk_state is not None and prev_blk_state > 0:
+                arcs.append((prev_blk_state, cur_non_blk_state, p, sym_id, 0))
                 if i_p == 0:
-                    arcs.append((prev_blk_state, cur_non_blk_state, p, i_w + 1, 0))
-                else:
-                    arcs.append((prev_blk_state, cur_non_blk_state, p, 0, 0))
+                    word_index_sym_tab[sym_id] = i_w
 
             # 2) draw the graph of this token
-            arcs.append((cur_non_blk_state, cur_non_blk_state, p, eps, 0))
+            arcs.append((cur_non_blk_state, cur_non_blk_state, p, sym_id, 0))
             arcs.append((cur_non_blk_state, cur_blk_state, eps, eps, 0))
             arcs.append((cur_blk_state, cur_blk_state, eps, eps, 0))
 
             # 3) add factor arcs
             if i_p == 0:  # word-start
-                arcs.append((start_state, cur_non_blk_state, p, i_w + 1, 0))  # in-coming factor arc
+                arcs.append((start_state, cur_non_blk_state, p, sym_id, 0))  # in-coming factor arc
             if i_p == len_w - 1:  # word-end
                 # arcs.append((cur_non_blk_state, final_state, -1, -1, 0))  # out-going factor arc 1
-                arcs.append((cur_non_blk_state, final_blk_state, eps, i_w + 2, 0))  # out-going factor arc 2
-                arcs.append((cur_non_blk_state, final_blk_state, p, i_w + 2, 0))  # out-going factor arc 3
+                arcs.append((cur_non_blk_state, final_blk_state, eps, sym_id + 1, 0))  # out-going factor arc 2
+                arcs.append((cur_non_blk_state, final_blk_state, p, sym_id + 1, 0))  # out-going factor arc 3
 
             prev_non_blk_state = cur_non_blk_state
             prev_blk_state = cur_blk_state
             prev_p = p
             
             token_cnt += 1
+            sym_id += 1
 
     assert prev_non_blk_state == final_state - 3, f"cur_state={prev_non_blk_state}, final_state={final_state}"
     arcs.append((final_blk_state, final_blk_state, eps, eps, blank_penalty))
     arcs.append((final_blk_state, final_state, -1, -1, 0))
     # arcs.append((prev_blk_state, final_state, -1, -1, 0))
-    arcs.append((prev_blk_state, final_blk_state, eps, i_w + 2, 0))
+    arcs.append((prev_blk_state, final_blk_state, eps, sym_id, 0))
     arcs.append((final_state,))
+    word_index_sym_tab[sym_id] = i_w + 1
 
     new_arcs = sorted(arcs, key=lambda arc: arc[0])
     new_arcs = [" ".join(map(str, arc)) for arc in new_arcs]
     new_arcs = "\n".join(new_arcs)
 
     if return_str:
-        return new_arcs
+        return new_arcs, word_index_sym_tab, token_sym_tab
     else:
         fst = k2.Fsa.from_str(new_arcs, acceptor=False)
         fst = k2.arc_sort(fst)
-        return fst
+        return fst, word_index_sym_tab, token_sym_tab
 
 
 def make_factor_transducer_word_level_index_with_skip(word_id_list, return_str=False, blank_penalty=0, skip_penalty=-0.5, return_penalty=None, noneps_bonus=0.0):
@@ -405,6 +414,10 @@ def make_factor_transducer_word_level_index_with_skip(word_id_list, return_str=F
     # arc: (ss, ee, l1, l2, weight)
     arcs.append((start_state, start_state, eps, eps, blank_penalty))
     
+    word_index_sym_tab = {eps: eps, 1: 0}  # need to handle special cases
+    token_sym_tab = {eps: eps}
+    sym_id = 1
+    
     prev_blk_state = start_state
     prev_non_blk_state = None
     prev_p = None
@@ -435,34 +448,33 @@ def make_factor_transducer_word_level_index_with_skip(word_id_list, return_str=F
             cur_non_blk_state = 2*token_cnt + 1
             cur_blk_state = cur_non_blk_state + 1
 
+            token_sym_tab[sym_id] = p
             blank_states_for_skip.append(cur_blk_state)
 
             # 1) link it to the existing graph
             if prev_non_blk_state is not None:
                 if p != prev_p:
+                    arcs.append((prev_non_blk_state, cur_non_blk_state, p, sym_id, 0 + noneps_bonus))
                     if i_p == 0:
-                        arcs.append((prev_non_blk_state, cur_non_blk_state, p, i_w + 1, 0 + noneps_bonus))
-                    else:
-                        arcs.append((prev_non_blk_state, cur_non_blk_state, p, 0, 0 + noneps_bonus))
+                        word_index_sym_tab[sym_id] = i_w
 
             if prev_blk_state is not None and prev_blk_state > 0:
+                arcs.append((prev_blk_state, cur_non_blk_state, p, sym_id, 0 + noneps_bonus))
                 if i_p == 0:
-                    arcs.append((prev_blk_state, cur_non_blk_state, p, i_w + 1, 0 + noneps_bonus))
-                else:
-                    arcs.append((prev_blk_state, cur_non_blk_state, p, 0, 0 + noneps_bonus))
+                    word_index_sym_tab[sym_id] = i_w
 
             # 2) draw the graph of this token
-            arcs.append((cur_non_blk_state, cur_non_blk_state, p, eps, 0 + noneps_bonus))
+            arcs.append((cur_non_blk_state, cur_non_blk_state, p, sym_id, 0 + noneps_bonus))
             arcs.append((cur_non_blk_state, cur_blk_state, eps, eps, 0))
             arcs.append((cur_blk_state, cur_blk_state, eps, eps, 0))
 
             # 3) add factor arcs
             if i_p == 0:  # word-start
-                arcs.append((start_state, cur_non_blk_state, p, i_w + 1, 0 + noneps_bonus))  # in-coming factor arc
+                arcs.append((start_state, cur_non_blk_state, p, sym_id, 0 + noneps_bonus))  # in-coming factor arc
             if i_p == len_w - 1:  # word-end
                 # arcs.append((cur_non_blk_state, final_state, -1, -1, 0))  # out-going factor arc 1
-                arcs.append((cur_non_blk_state, final_blk_state, eps, i_w + 2, 0))  # out-going factor arc 2
-                arcs.append((cur_non_blk_state, final_blk_state, p, i_w + 2, 0 + noneps_bonus))  # out-going factor arc 3
+                arcs.append((cur_non_blk_state, final_blk_state, eps, sym_id + 1, 0))  # out-going factor arc 2
+                arcs.append((cur_non_blk_state, final_blk_state, p, sym_id + 1, 0 + noneps_bonus))  # out-going factor arc 3
 
                 # 5) add return arcs
                 if return_penalty is not None:
@@ -473,6 +485,7 @@ def make_factor_transducer_word_level_index_with_skip(word_id_list, return_str=F
             prev_p = p
             
             token_cnt += 1
+            sym_id += 1
 
     # 4) add skip arcs
     for s1, s2 in zip(blank_states_for_skip, blank_states_for_skip[1:-1]):
@@ -482,19 +495,20 @@ def make_factor_transducer_word_level_index_with_skip(word_id_list, return_str=F
     arcs.append((final_blk_state, final_blk_state, eps, eps, blank_penalty))
     arcs.append((final_blk_state, final_state, -1, -1, 0))
     # arcs.append((prev_blk_state, final_state, -1, -1, 0))
-    arcs.append((prev_blk_state, final_blk_state, eps, i_w + 2, 0))
+    arcs.append((prev_blk_state, final_blk_state, eps, sym_id, 0))
     arcs.append((final_state,))
+    word_index_sym_tab[sym_id] = i_w + 1
 
     new_arcs = sorted(arcs, key=lambda arc: arc[0])
     new_arcs = [" ".join(map(str, arc)) for arc in new_arcs]
     new_arcs = "\n".join(new_arcs)
 
     if return_str:
-        return new_arcs
+        return new_arcs, word_index_sym_tab, token_sym_tab
     else:
         fst = k2.Fsa.from_str(new_arcs, acceptor=False)
         fst = k2.arc_sort(fst)
-        return fst
+        return fst, word_index_sym_tab, token_sym_tab
 
 
 # def make_factor_transducer1(word_id_list, return_str=False, blank_penalty=0):
