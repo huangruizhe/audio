@@ -78,26 +78,33 @@ def align_segments(
         emissions: 3-D tensor of shape (L, T, C), where L is the number of segments, T is the number of frames.
         decoding_graph: k2.Fsa, the decoding graph.
         segment_lengths: 1-D tensor of shape (L,). It contains the length of each segment. 
+    Returns:
+        hyps: a list of lists. Each sublist contains the output labels in the best path.
+        timestamps: a list of lists. Each sublist contains the timestamps corresponding to the labels.
     '''
 
     # Use the graph's device
     device = decoding_graph.device
     emissions = emissions.to(device)
 
-    # find best alignment paths using k2 library and the input WFST graph
+    # Find best alignment paths using k2 library and the input WFST graph
     best_paths = get_best_paths(emissions, segment_lengths, decoding_graph)
     best_paths = best_paths.detach().to('cpu')
 
+    # Get the output labels and timestamps from the best paths
     decoding_results = get_texts_with_timestamp(best_paths)
-    token_ids_indices = decoding_results["hyps"]  # Note, here the "hyps" are actually indices 
+    hyps = decoding_results["hyps"]
     timestamps = decoding_results["timestamps"]
 
-    # There can be empty result in `token_ids_indices`. 
-    # We put [1,1] as a placeholder for the ease of future processing
-    token_ids_indices = [tkid if len(tkid) > 0 else [1,1] for tkid in token_ids_indices]
-    token_ids_indices = [list(map(lambda x: x - 1, rg)) for rg in token_ids_indices]
+    for hh, tt in zip(hyps, timestamps):
+        assert len(hh) == len(tt)
 
-    return token_ids_indices, timestamps
+    # # There can be empty result in `token_ids_indices`. 
+    # # We put [1,1] as a placeholder for the ease of future processing
+    # token_ids_indices = [tkid if len(tkid) > 0 else [1,1] for tkid in token_ids_indices]
+    # token_ids_indices = [list(map(lambda x: x - 1, rg)) for rg in token_ids_indices]
+
+    return hyps, timestamps
 
 
 
