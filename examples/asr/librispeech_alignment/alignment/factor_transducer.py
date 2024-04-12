@@ -385,7 +385,14 @@ def make_factor_transducer_word_level_index(word_id_list, return_str=False, blan
         return fst, word_index_sym_tab, token_sym_tab
 
 
-def make_factor_transducer_word_level_index_with_skip(word_id_list, return_str=False, blank_penalty=0, skip_penalty=-0.5, return_penalty=None, noneps_bonus=0.0):
+def make_factor_transducer_word_level_index_with_skip(
+    word_id_list, 
+    return_str=False, 
+    blank_penalty=0, 
+    skip_penalty=-0.5, 
+    return_penalty=None, 
+    noneps_bonus=0.0,
+):
     '''
         This is a modification of `make_factor_transducer_word_level_index`, but we allow skip arcs instead of a standard factor transducer
         That means the "factors" do not need to be consecutive words. Some words can be skipped.
