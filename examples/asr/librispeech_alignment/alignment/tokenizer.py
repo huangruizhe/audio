@@ -24,7 +24,38 @@ class TokenizerInterface(ABC):
         raise NotImplementedError
 
 
-class EnglishCharTokenizer(TokenizerInterface):
+class EnglishTokenizer(TokenizerInterface):
+    # Keep "'" as in Librispeech 
+    # How about the dash symbol "-"? 
+    # Ok, I don't find '-' symbol in Librispeech file. So we will not allow to use "-"
+    punctuation = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~'
+
+    def _normalize(self, word):
+        # Normalize a word
+        # TODO: checkout how Gentle do this
+
+        # Remove all punctuation
+        word = word.translate(str.maketrans("", "", self.punctuation))
+        # Convert all upper case to lower case
+        word = word.lower()
+        if len(word) == 0:
+            return "*"
+        return word
+    
+    def text_normalize(self, text: str) -> str:
+        # We preserve the word index in the transcript (i.e, we don't remove words)
+        # E.g., "hello 这 world" -> "hello * world"
+
+        # [Ref] https://github.com/kaldi-asr/kaldi/blob/master/egs/librispeech/s5/local/lm/normalize_text.sh
+        text = [self._normalize(w) for w in text.split()]
+        text = " ".join(text)
+        return text
+
+    def encode(self, sentence, out_type=int):
+        raise NotImplementedError
+
+
+class EnglishCharTokenizer(EnglishTokenizer):
     def __init__(
         self,
         token2id,
@@ -48,7 +79,7 @@ class EnglishCharTokenizer(TokenizerInterface):
         return [[self.id2token[i] for i in w] for w in token_ids]
 
 
-class EnglishBPETokenizer(TokenizerInterface):
+class EnglishBPETokenizer(EnglishTokenizer):
     def __init__(
         self,
         sp_model,
@@ -84,7 +115,7 @@ class EnglishBPETokenizer(TokenizerInterface):
         return [[self.sp_model.id_to_piece(t) for t in w] for w in token_ids]
 
 
-class EnglishPhonemeTokenizer(TokenizerInterface):
+class EnglishPhonemeTokenizer(EnglishTokenizer):
     '''
     Useful resources for G2P in python:
     # https://github.com/prosegrinder/python-cmudict
