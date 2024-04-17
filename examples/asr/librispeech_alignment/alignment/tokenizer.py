@@ -31,12 +31,20 @@ class TokenizerInterface(ABC):
         # - a list of lists of lists of integers
         # Here, we will remove the word boundaries.
         # If a word has multiple pronuncations, we will keep only the first one
-        if isinstance(tokens[0][0], list):
+        if isinstance(tokens[0][0], list) or isinstance(tokens[0][0], tuple):
             tokens = [t for w_prons in tokens for t in w_prons[0]]
         else:
-            assert isinstance(tokens[0][0], int), tokens
+            assert isinstance(tokens[0][0], int) or isinstance(tokens[0][0], str), tokens
             tokens = [t for w_prons in tokens for t in w_prons]
 
+        return tokens
+    
+    def decode_flatten(self, token_ids):
+        if isinstance(token_ids[0], list):  # this is a batch
+            tokens = [[self.id2token[t] for t in utt] for utt in token_ids]
+        else:
+            assert isinstance(token_ids[0], int), token_ids
+            tokens = [self.id2token[t] for t in token_ids]
         return tokens
 
 
@@ -108,6 +116,7 @@ class EnglishBPETokenizer(EnglishTokenizer):
         assert self.blk_id == 0
         self.sp_model = sp_model
         self.token2id = {sp_model.id_to_piece(i): i for i in range(sp_model.vocab_size())}
+        self.id2token = {v: k for k, v in self.token2id.items()}
         self.start_token_ids = {i for i in range(sp_model.vocab_size()) if sp_model.id_to_piece(i).startswith("▁")}
 
     def get_word_boundaries(self, token_ids):

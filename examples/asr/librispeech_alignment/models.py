@@ -277,6 +277,11 @@ class CTCModel(torch.nn.Module):
                     representing prediction network internal state generated in current invocation
                     of ``forward``.
         """
+        device = self.encoder_output_layer.weight.device
+        if sources.device != device:
+            sources = sources.to(device)
+            source_lengths = source_lengths.to(device)
+
         source_encodings, source_lengths = self.encoder(
             input=sources,
             lengths=source_lengths,

@@ -71,7 +71,7 @@ class AcousticModelModule(LightningModule):
             batch.features,
             batch.feature_lengths,
         )
-        loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths)
+        loss = self.loss(output, batch.targets, src_lengths, batch.target_lengths, step_type=step_type)
         self.log(f"Losses/{step_type}_loss", loss, on_step=True, on_epoch=True)
 
         return loss
@@ -81,6 +81,24 @@ class AcousticModelModule(LightningModule):
             [self.optimizer],
             [{"scheduler": self.warmup_lr_scheduler, "interval": "epoch"}],
         )
+    
+    def decode(self, batch: Batch):
+        if batch is None:
+            return None
+
+        with torch.inference_mode():
+            output, src_lengths = self.model(
+                batch.features,
+                batch.feature_lengths,
+            )
+        emission = output.permute(1, 0, 2).cpu()  # (T, N, num_label) => (N, T, num_label)
+
+        # A simplest greedy decoding
+        indices = torch.argmax(emission, dim=-1)
+        indices = torch.unique_consecutive(indices, dim=-1)
+        indices = [[i for i in utt.tolist() if i != self.blank_idx] for utt in indices]
+        joined = ["".join(self.tokenizer.decode_flatten(utt)) for utt in indices]
+        return joined
 
     def forward(self, batch: Batch):
         # TODO: return alignment results

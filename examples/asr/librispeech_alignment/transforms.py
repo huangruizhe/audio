@@ -118,5 +118,4 @@ def get_data_module(librispeech_path, global_stats_path, tokenizer):
         test_transform=test_transform,
         max_tokens=2000,
         batch_size=None,
-        
     )
