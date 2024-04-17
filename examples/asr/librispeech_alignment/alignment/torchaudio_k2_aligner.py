@@ -7,6 +7,7 @@ from k2_icefall_utils import (
 )
 import itertools
 import lis  # https://github.com/huangruizhe/lis
+from dataclasses import dataclass
 
 
 logfmt = "%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s"
@@ -68,6 +69,13 @@ def uniform_segmentation_with_overlap(
     return m_segmented, segment_lengths, segment_offsets
 
 
+@dataclass
+class AlignedToken:
+    token_id: int
+    timestamp: int
+    attr: dict
+
+
 def align_segments(
     emissions,
     decoding_graph,
@@ -98,15 +106,20 @@ def align_segments(
     hyps = decoding_results["hyps"]
     timestamps = decoding_results["timestamps"]
 
-    for hh, tt in zip(hyps, timestamps):
-        assert len(hh) == len(tt)
-
     # # There can be empty result in `token_ids_indices`. 
     # # We put [1,1] as a placeholder for the ease of future processing
     # token_ids_indices = [tkid if len(tkid) > 0 else [1,1] for tkid in token_ids_indices]
     # token_ids_indices = [list(map(lambda x: x - 1, rg)) for rg in token_ids_indices]
 
-    return hyps, timestamps
+    results = []
+    for hyp, timestamp in zip(hyps, timestamps):
+        assert len(hyp) == len(timestamp)  # `hyp` and `timestamp` are both lists of integers
+        aligned_tokens = []
+        for tid, ts in zip(hyp, timestamp):
+            aligned_tokens.append(AlignedToken(tid, ts, {}))
+        results.append(aligned_tokens)
+
+    return results
 
 
 
@@ -262,14 +275,9 @@ def get_range_without_outliers(my_list, scan_range=100, outlier_threshold=60):
     return left, right
 
 
-def remove_outliers(my_list, max_symbol_id, scan_range=100, outlier_threshold=60):
+def remove_outliers(my_list, scan_range=100, outlier_threshold=60):
     # Given a list of integers in my_list in ascending order, remove outliers
     # such that there is a gap more than outlier_threshold
-
-    while my_list[0] == max_symbol_id:
-        my_list = my_list[1:]
-    while my_list[-1] == max_symbol_id:
-        my_list = my_list[:-1]
 
     if len(my_list) <= 10:
         return my_list
@@ -283,59 +291,42 @@ def remove_outliers(my_list, max_symbol_id, scan_range=100, outlier_threshold=60
     return my_list[left: right]
 
 
-def get_lis_alignment(hyp_list, lis_result, max_symbol_id):
+def get_lis_alignment(lis_results, alignment_results):
     '''
-    This function aligns the longest increasing subsequence (LIS) in `lis_result` to the original `hyp_list`.
-    `lis_result` must be a sublist of `hyp_list`.
+    This function aligns the longest increasing subsequence (LIS) in `lis_results` to the original `alignment_results`.
+    `lis_results` must be a sublist of `alignment_results`.
     We use a heuristic here to ensure some "tightness" of the alignment.
-    More specifically, for the first half of `lis_result`, we align them to the last occurrence in `hyp_list`;
-    for the last half of `lis_result`, we align them to the first occurrence in `hyp_list`.
-    '''
+    More specifically, for the first half of `lis_results`, we align them to the last occurrence in `alignment_results`;
+    for the last half of `lis_results`, we align them to the first occurrence in `alignment_results`.
+    '''    
+    midpoint = len(lis_results) // 2
 
-    # TODO: The last integer from lis_result may be wrong
-    # lis_result = lis_result[:-1]
-    # We have removed the outliers already
-    
-    midpoint = len(lis_result) // 2
-
-    indices_in_segment = [dict()]
-    last_boundary_i = 0
-    j = 0  # i: index in hyp_list, j: index in lis_result
-    for i in range(len(hyp_list)):
-        if j < midpoint:
-            if hyp_list[i] == lis_result[j]:
-                indices_in_segment[-1][lis_result[j]] = i - last_boundary_i
-                j += 1
-                if j == len(lis_result):
-                    break
-        else:
-            if hyp_list[i] == lis_result[j] and lis_result[j] not in indices_in_segment[-1]:
-                indices_in_segment[-1][lis_result[j]] = i - last_boundary_i
-                j += 1
-                if j == len(lis_result):
-                    break
-        
-        if hyp_list[i] == max_symbol_id:
-            last_boundary_i = i + 1
-            indices_in_segment.append(dict())
-    
-    # TODO: is it necessary? I think the LIS result cannot be extended anymore
-    # 
-    # Here, i and j still match; let's increase i by a certain range and 
-    # see if there's something that can extend to the alignment.
-    # Note that i may not have consumed all `max_symbol_id`
-    range_thres = 50
-    gap_thres = 10  # within 10 words
-    last_lis_result = lis_result[-1]
-    for k in range(range_thres):
-        i += 1
-        if i == len(hyp_list):
+    lis_ali = dict()
+    j = 0  # j: index in lis_results
+    outer_break = False
+    for aligned_tokens in alignment_results:
+        for token in aligned_tokens:
+            if j < midpoint:
+                if lis_results[j] == token.attr.get("wid", None):
+                    lis_ali[lis_results[j]] = token
+                    j += 1
+                    if j == len(lis_results):
+                        outer_break = True
+                        break
+            else:
+                if lis_results[j] == token.attr.get("wid", None) and lis_results[j] not in lis_ali:
+                    lis_ali[lis_results[j]] = token
+                    j += 1
+                    if j == len(lis_results):
+                        outer_break = True
+                        break
+        if outer_break:
             break
-        if 0 < hyp_list[i] - last_lis_result < gap_thres and hyp_list[i] not in indices_in_segment[-1]:
-            indices_in_segment[-1][hyp_list[i]] = i - last_boundary_i
-            last_lis_result = hyp_list[i]
 
-    return indices_in_segment
+    for token in lis_ali.values():
+        token.attr["lis"] = True
+
+    return alignment_results
 
 
 class WordCounter: 
@@ -450,10 +441,10 @@ def handle_failed_groups(no_need_to_realign, alignment_results):
     return
 
 # TODO: we may need to do a two pass alignment
-def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='cpu'):
-    # The task here is to find the "reliable" aligned parts from the alignment results `rs`
+def concat_alignments(alignment_results, num_segments_per_chunk=5, neighbor_threshold=5, device='cpu'):
+    # The task here is to find the "reliable" aligned parts from the alignment results `alignment_results`
     # Since the alignment results are actually "indices" in the long text, we hope to find the
-    # longest increasing subsubsequence from the alignment results.
+    # longest increasing subsubsequence (LIS) from the alignment results.
 
     # solution1: just wfst(k2) to compute edit distance (shortest path from the pruned graph)
     # solution2: just use python's difflib: https://docs.python.org/3/library/difflib.html#differ-example
@@ -468,52 +459,63 @@ def align_long_text(rs, num_segments_per_chunk=5, neighbor_threshold=5, device='
     #            - https://www.youtube.com/watch?v=66w10xKzbRM&t=0s
     # solution5: vimdiff: vimdiff <(tr ' ' '\n' <download/LibriSpeechAligned/LibriSpeech/books/ascii/2981/2981.txt) <(tr ' ' '\n' <download/LibriSpeechAligned/LibriSpeech/books/ascii/3600/3600.txt)
 
-    hyps = rs['hyps']
-    timestamps = rs['timestamps']
-    output_frame_offset = rs['output_frame_offset'].tolist()
-    meta_data = rs['meta_data']
+    hyps = [[token.attr["wid"] for token in aligned_tokens if "wid" in token.attr] for aligned_tokens in alignment_results]
+    timestamps = [[token.timestamp for token in aligned_tokens if "wid" in token.attr] for aligned_tokens in alignment_results]
 
-    alignment_results = dict()
-
-    # find the longest increasing subsequence
+    # Find the longest increasing subsequence (LIS)
     hyp_list = [i for hyp in hyps for i in hyp]
-    max_symbol_id = max(hyp_list) + 100   # use this symbol to mark the chunk boundaries
-    hyp_list = [i for hyp in hyps for i in [max_symbol_id] + hyp]
-    hyp_list = hyp_list[1:]
-    lis_result = lis.longestIncreasingSubsequence(hyp_list)
-    lis_result = remove_outliers(lis_result, max_symbol_id, scan_range=100, outlier_threshold=60)
-    if len(lis_result) == 0:
+    lis_results = lis.longestIncreasingSubsequence(hyp_list)
+    
+    # Post-process1: remove outliers from the LIS results
+    lis_results = remove_outliers(lis_results, scan_range=100, outlier_threshold=60)
+    if len(lis_results) == 0:
         return dict(), None
-    indices_in_segment = get_lis_alignment(hyp_list, lis_result, max_symbol_id)  # hyp_list and lis_result are both word indices in the long text
     
-    for idx, ts, ofs in zip(indices_in_segment, timestamps, output_frame_offset):
-        for k, v in idx.items():
-            alignment_results[k] = ts[v] + ofs
-    
-    # Post-process: remove isolatedly aligned words
+    # Post-process2: remove isolatedly aligned words
     # Each aligned word should have a neighborhood of at least neighbor_threshold words
-    rg_min = min(alignment_results.keys())
-    rg_max = max(alignment_results.keys())
-    aligned_flag = [i in alignment_results for i in range(rg_min, rg_max + 1)]
-    rg_min_tt = alignment_results[rg_min]  # just in case the first or last word got removed from the alignment due to the heursitic below
-    rg_max_tt = alignment_results[rg_max]
+    rg_min = min(lis_results)
+    rg_max = max(lis_results)
+    set_lis_results = set(lis_results)
     for i in range(rg_min, rg_max + 1):
-        i = i - rg_min
-        if aligned_flag[i]:
-            sub_list = aligned_flag[max(0, i-neighbor_threshold): i + neighbor_threshold]
-            if sum(sub_list) < 0.5 * len(sub_list):  # only less than 50% of the words in the neighborhood are aligned
-                del alignment_results[i + rg_min]
-                aligned_flag[i] = False
+        if i in set_lis_results:
+            left_neighbors_in_lis = [j for j in range(i-neighbor_threshold, i) if j in set_lis_results]
+            right_neighbors_in_lis = [j for j in range(i+1, i+neighbor_threshold+1) if j in set_lis_results]
+            num_left_neighbors = i - max(i-neighbor_threshold, rg_min)
+            num_right_neighbors = min(i+neighbor_threshold, rg_max) - i
+            # only less than 50% of the words in the neighborhood are aligned
+            if len(left_neighbors_in_lis) < 0.4 * num_left_neighbors and \
+                len(right_neighbors_in_lis) < 0.4 * num_right_neighbors:
+                set_lis_results.remove(i)
+    lis_results = [i for i in lis_results if i in set_lis_results]
+
+    # Align LIS results with the original `alignment_results`
+    alignment_results = get_lis_alignment(lis_results, alignment_results)  # hyp_list and lis_result are both word indices in the long text
+
+    # Keep only the aligned tokens which are in LIS
+    resolved_alignment_results = list()
+    for aligned_tokens in alignment_results:
+        word_start_flag = False
+        for token in aligned_tokens:
+            if token.attr.get("lis", False):
+                resolved_alignment_results.append(token)
+                word_start_flag = True
+            elif "wid" in token.attr:
+                # assert "lis" not in token.attr
+                word_start_flag = False
+            elif word_start_flag:
+                resolved_alignment_results.append(token)
     
-    # Find the aligned parts
-    alignment_results[rg_min] = rg_min_tt  # dirty solution -- I still need to put them here to provide boundary information. They will still be re-aligned
-    alignment_results[rg_max] = rg_max_tt
-    to_realign, no_need_to_realign = find_unaligned(aligned_flag, rg_min, alignment_results)
+    # # Find the aligned parts
+    # alignment_results[rg_min] = rg_min_tt  # dirty solution -- I still need to put them here to provide boundary information. They will still be re-aligned
+    # alignment_results[rg_max] = rg_max_tt
+    # to_realign, no_need_to_realign = find_unaligned(aligned_flag, rg_min, alignment_results)
 
-    # For some unaligned parts, we don't need to realign them cos they are too short
-    handle_failed_groups(no_need_to_realign, alignment_results)
+    # # For some unaligned parts, we don't need to realign them cos they are too short
+    # handle_failed_groups(no_need_to_realign, alignment_results)
 
-    return alignment_results, to_realign
+    to_realign = None
+
+    return resolved_alignment_results, to_realign
 
 
 def merge_segments(segments, threshold, is_sorted=True):
@@ -602,3 +604,9 @@ def to_audacity_label_format(alignment_results, frame_duration, text):
 
     # str(Path("audacity_labels.txt").absolute())
     return audacity_labels_str
+
+
+def to_gentle_visualization(alignment_results, frame_duration, text):
+    # align_to_gentle:
+    # /exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc_large/alignment/ali_torchaudio.py
+    pass
