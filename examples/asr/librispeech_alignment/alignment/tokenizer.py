@@ -23,6 +23,22 @@ class TokenizerInterface(ABC):
     def encode(self, sentence, out_type=int):
         raise NotImplementedError
 
+    def encode_flatten(self, sentence, out_type=int):
+        tokens = self.encode(sentence, out_type=out_type)
+
+        # `tokens` can be either
+        # - a list of lists of integers
+        # - a list of lists of lists of integers
+        # Here, we will remove the word boundaries.
+        # If a word has multiple pronuncations, we will keep only the first one
+        if isinstance(tokens[0][0], list):
+            tokens = [t for w_prons in tokens for t in w_prons[0]]
+        else:
+            assert isinstance(tokens[0][0], int), tokens
+            tokens = [t for w_prons in tokens for t in w_prons]
+
+        return tokens
+
 
 class EnglishTokenizer(TokenizerInterface):
     # Keep "'" as in Librispeech 
@@ -141,6 +157,7 @@ class EnglishPhonemeTokenizer(EnglishTokenizer):
 
         self.token2id = {p: i + 1 for i, (p, _) in enumerate(cmudict.phones())}  # Note: we don't model stress level here
         self.token2id[blk_token] = 0
+        self.blk_id = 0
         self.unk_token = unk_token
         self.unk_id = len(self.token2id)
         self.token2id[unk_token] = self.unk_id
@@ -152,14 +169,14 @@ class EnglishPhonemeTokenizer(EnglishTokenizer):
             prons = self.cmu[word]
             prons = prons[:num_prons]
         else:
-            pron = self.g2p(word)
+            pron = self.g2p(word.replace("'", ""))
             if len(pron) == 0:  # e.g., word = "你好"
                 pron = [self.unk_token]
             prons = [pron]
         
         prons = [tuple(re.sub(r'\d', '', p) for p in pron) for pron in prons]  # remove stress level
         prons = list(set(prons))  # remove duplicates
-        return prons
+        return prons  # This is a list of pronuncations, where each pronuncation is a list of phonemes
 
     def encode(self, sentence, num_prons=None, out_type=int):
         sentence = sentence.strip().lower()
@@ -169,7 +186,7 @@ class EnglishPhonemeTokenizer(EnglishTokenizer):
             self.get_word_pron(w, num_prons) for w in sentence.split()
         ]
         token_ids = [
-            [[self.token2id[p] for p in pron] for pron in prons] for prons in tokens
+            [[self.token2id[p] for p in pron] for pron in w_prons] for w_prons in tokens
         ]
 
         # We just simply consider each pronunciation equally likely here
@@ -205,13 +222,13 @@ def test1():
 
 def test2():
     # https://pytorch.org/audio/main/tutorials/ctc_forced_alignment_api_tutorial.html
-    labels = ('-', 'a', 'i', 'e', 'n', 'o', 'u', 't', 's', 'r', 'm', 'k', 'l', 'd', 'g', 'h', 'y', 'b', 'p', 'w', 'c', 'v', 'j', 'z', 'f', "'", 'q', 'x')
+    labels = ('-', 'a', 'i', 'e', 'n', 'o', 'u', 't', 's', 'r', 'm', 'k', 'l', 'd', 'g', 'h', 'y', 'b', 'p', 'w', 'c', 'v', 'j', 'z', 'f', "'", 'q', 'x', '*')
     transcript = "i had that curiosity beside me at this moment"
 
     tokenizer = EnglishCharTokenizer(
         token2id={c: i for i, c in enumerate(labels)},
         blk_token="-",
-        unk_token="-",
+        unk_token="*",
     )
     print(tokenizer.encode(transcript))
     print(tokenizer.decode(tokenizer.encode(transcript)))
@@ -238,6 +255,7 @@ def test4():
     # transcript = "i had that curiosity beside me at this moment"
     # transcript = "i had that curiosity beside me at this moment 你好"
     transcript = "i had that curiosity beside me at this mo1ment 你好"
+    # transcript = "the meetin' hou-se"
     print(tokenizer.encode(transcript))
     print(tokenizer.decode(tokenizer.encode(transcript)))
 
