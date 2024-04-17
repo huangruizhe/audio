@@ -50,7 +50,7 @@ class WarmupLR(torch.optim.lr_scheduler._LRScheduler):
 
 
 class AcousticModelModule(LightningModule):
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, prior_scaling_factor=0.0):
         super().__init__()
 
         self.tokenizer = tokenizer
@@ -59,7 +59,7 @@ class AcousticModelModule(LightningModule):
 
         # The acoustic model hardcodes a specific TDNN-FFN configuration.
         self.model = tdnn_blstm_ctc_model_base(output_vocab_size)
-        self.loss = CTCLossWithLabelPriors(ctc_implementation="torch", blank=self.blank_idx)
+        self.loss = CTCLossWithLabelPriors(prior_scaling_factor=prior_scaling_factor, ctc_implementation="k2", blank=self.blank_idx)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=8e-4, betas=(0.9, 0.98), eps=1e-9, weight_decay=1e-6)
         self.warmup_lr_scheduler = WarmupLR(self.optimizer, 40, 120, 0.96)
 
@@ -83,6 +83,23 @@ class AcousticModelModule(LightningModule):
         )
     
     def decode(self, batch: Batch):
+        emission = self.forward(batch)
+        if emission is None:
+            return None
+
+        # A simplest greedy decoding
+        indices = torch.argmax(emission, dim=-1)
+        indices = torch.unique_consecutive(indices, dim=-1)
+        indices = [[i for i in utt.tolist() if i != self.blank_idx] for utt in indices]
+        joined = ["".join(self.tokenizer.decode_flatten(utt)) for utt in indices]
+        return joined
+
+    def align(self, batch: Batch):
+        # TODO: we may implement alignment according to:
+        # https://pytorch.org/audio/main/tutorials/ctc_forced_alignment_api_tutorial.html
+        pass
+
+    def forward(self, batch: Batch):
         if batch is None:
             return None
 
@@ -92,19 +109,7 @@ class AcousticModelModule(LightningModule):
                 batch.feature_lengths,
             )
         emission = output.permute(1, 0, 2).cpu()  # (T, N, num_label) => (N, T, num_label)
-
-        # A simplest greedy decoding
-        indices = torch.argmax(emission, dim=-1)
-        indices = torch.unique_consecutive(indices, dim=-1)
-        indices = [[i for i in utt.tolist() if i != self.blank_idx] for utt in indices]
-        joined = ["".join(self.tokenizer.decode_flatten(utt)) for utt in indices]
-        return joined
-
-    def forward(self, batch: Batch):
-        # TODO: return alignment results
-        decoder = RNNTBeamSearch(self.model, self.blank_idx)
-        hypotheses = decoder(batch.features.to(self.device), batch.feature_lengths.to(self.device), 20)
-        return post_process_hypos(hypotheses, self.sp_model)[0][0]
+        return emission
 
     def training_step(self, batch: Batch, batch_idx):
         """Custom training step.

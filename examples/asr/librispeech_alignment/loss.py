@@ -154,7 +154,6 @@ class CTCLossWithLabelPriors(nn.Module):
         dense_fsa_vec = k2.DenseFsaVec(
             log_probs,  # (N, T, C)
             supervision_segments,
-            allow_truncate=self.subsampling_factor - 1,
         )
 
         loss = k2.ctc_loss(
