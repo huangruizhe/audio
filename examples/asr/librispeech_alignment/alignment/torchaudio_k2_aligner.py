@@ -8,6 +8,7 @@ from k2_icefall_utils import (
 import itertools
 import lis  # https://github.com/huangruizhe/lis
 from dataclasses import dataclass
+from typing import Union
 
 
 logfmt = "%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s"
@@ -71,10 +72,16 @@ def uniform_segmentation_with_overlap(
 
 @dataclass
 class AlignedToken:
-    token_id: int
+    token_id: Union[str, int]
     timestamp: int
     attr: dict
 
+@dataclass
+class AlignedWord:
+    word: int
+    start_time: int
+    end_time: int
+    phones: list
 
 def align_segments(
     emissions,
@@ -441,7 +448,7 @@ def handle_failed_groups(no_need_to_realign, alignment_results):
     return
 
 # TODO: we may need to do a two pass alignment
-def concat_alignments(alignment_results, num_segments_per_chunk=5, neighbor_threshold=5, device='cpu'):
+def concat_alignments(alignment_results, neighborhood_size=5):
     # The task here is to find the "reliable" aligned parts from the alignment results `alignment_results`
     # Since the alignment results are actually "indices" in the long text, we hope to find the
     # longest increasing subsubsequence (LIS) from the alignment results.
@@ -472,19 +479,22 @@ def concat_alignments(alignment_results, num_segments_per_chunk=5, neighbor_thre
         return dict(), None
     
     # Post-process2: remove isolatedly aligned words
-    # Each aligned word should have a neighborhood of at least neighbor_threshold words
-    rg_min = min(lis_results)
-    rg_max = max(lis_results)
+    # Each aligned word should have a neighborhood of at least `neighbor_threshold`` words
+    neighbor_threshold = 0.4
+    rg_min = lis_results[0]
+    assert rg_min == min(lis_results)
+    rg_max = lis_results[-1]
+    assert rg_max == max(lis_results)
     set_lis_results = set(lis_results)
     for i in range(rg_min, rg_max + 1):
         if i in set_lis_results:
-            left_neighbors_in_lis = [j for j in range(i-neighbor_threshold, i) if j in set_lis_results]
-            right_neighbors_in_lis = [j for j in range(i+1, i+neighbor_threshold+1) if j in set_lis_results]
-            num_left_neighbors = i - max(i-neighbor_threshold, rg_min)
-            num_right_neighbors = min(i+neighbor_threshold, rg_max) - i
+            left_neighbors_in_lis = [j for j in range(i-neighborhood_size, i) if j in set_lis_results]
+            right_neighbors_in_lis = [j for j in range(i+1, i+neighborhood_size+1) if j in set_lis_results]
+            num_left_neighbors = i - max(i-neighborhood_size, rg_min)
+            num_right_neighbors = min(i+neighborhood_size, rg_max) - i
             # only less than 50% of the words in the neighborhood are aligned
-            if len(left_neighbors_in_lis) < 0.4 * num_left_neighbors and \
-                len(right_neighbors_in_lis) < 0.4 * num_right_neighbors:
+            if len(left_neighbors_in_lis) < neighbor_threshold * num_left_neighbors and \
+                len(right_neighbors_in_lis) < neighbor_threshold * num_right_neighbors:
                 set_lis_results.remove(i)
     lis_results = [i for i in lis_results if i in set_lis_results]
 
@@ -505,17 +515,15 @@ def concat_alignments(alignment_results, num_segments_per_chunk=5, neighbor_thre
             elif word_start_flag:
                 resolved_alignment_results.append(token)
     
-    # # Find the aligned parts
-    # alignment_results[rg_min] = rg_min_tt  # dirty solution -- I still need to put them here to provide boundary information. They will still be re-aligned
-    # alignment_results[rg_max] = rg_max_tt
-    # to_realign, no_need_to_realign = find_unaligned(aligned_flag, rg_min, alignment_results)
+    # Find the un-aligned transcript
+    # The `unaligned_text_indices` is a list of tuples (s, e) where
+    # the words starting from s and ending at e (inclusive) in the original transcript do not appear in the alignment results.
+    unaligned_text_indices = find_unaligned_text(rg_min, rg_max, set_lis_results)
 
     # # For some unaligned parts, we don't need to realign them cos they are too short
     # handle_failed_groups(no_need_to_realign, alignment_results)
 
-    to_realign = None
-
-    return resolved_alignment_results, to_realign
+    return resolved_alignment_results, unaligned_text_indices
 
 
 def merge_segments(segments, threshold, is_sorted=True):
@@ -551,12 +559,15 @@ def get_neighbor_aligned_word(idx, alignment_results, neighbor_range):
     return idx
 
 
-def find_unaligned(aligned_flag, rg_min, alignment_results, no_need_to_realign_thres1=2, no_need_to_realign_thres2=10):
-    # assert aligned_flag[0] is True
-    # assert aligned_flag[-1] is True
+def find_unaligned_text(rg_min, rg_max, set_lis_results):
+    '''
+    The "unaligned" parts are defined as the "holes" of alignment results in the original transcript.
+    E.g., (s1, e2) is a hole if the words starting from s1 and ending at e1 in the original transcript do not appear in the alignment results.
+    Note, the holes are not necessarily "align-able", as it may not be spoken in the audio.
+    '''
 
     # Find the indices of all consecutive "False" segments
-    to_realign = [[i for i, _ in group] for key, group in itertools.groupby(enumerate(aligned_flag), key=lambda x: x[1]) if not key]
+    holes = [[rg_min+i for i, _ in group] for key, group in itertools.groupby(enumerate(list(range(rg_min, rg_max+1))), key=lambda x: x[1] in set_lis_results) if not key]
 
     if False:
         # Too few words, e.g., 2 words
@@ -576,19 +587,50 @@ def find_unaligned(aligned_flag, rg_min, alignment_results, no_need_to_realign_t
         no_need_to_realign = []
         pass
 
-    # Ok, these are needed to be realigned
-    to_realign = [(group[0], group[-1]) for group in to_realign]
+    # Ok, these are the unaligned holes in the transcript, which may need to be realigned
+    holes = [(group[0], group[-1]) for group in holes]
 
     # Merge the unaligned segments if they are close to each other
-    to_realign = merge_segments(to_realign, threshold=3, is_sorted=True)
-    neighbor_range = 3  # add 3 already aligned words to the left and right
-    to_realign = [
-        (
-            get_neighbor_aligned_word(rg_min + group[0], alignment_results, -neighbor_range),
-            get_neighbor_aligned_word(rg_min + group[-1] + 1, alignment_results, neighbor_range)
-        ) for group in to_realign
-    ]  # each start/end will be an aligned word
-    return to_realign, no_need_to_realign
+    holes = merge_segments(holes, threshold=3, is_sorted=True)
+    
+    # neighbor_range = 3  # add 3 already aligned words to the left and right
+    # to_realign = [
+    #     (
+    #         get_neighbor_aligned_word(rg_min + group[0], alignment_results, -neighbor_range),
+    #         get_neighbor_aligned_word(rg_min + group[-1] + 1, alignment_results, neighbor_range)
+    #     ) for group in to_realign
+    # ]  # each start/end will be an aligned word
+
+    return holes
+
+
+def get_final_word_alignment(alignment_results, text, tokenizer):
+    text_splitted = text.split()
+
+    # A dictionary from: word_index => AlignedWord object
+    word_alignment = dict()
+    aligned_word = None
+    word_idx = None
+    assert "wid" in alignment_results[0].attr
+    for aligned_token in alignment_results:
+        if "wid" in aligned_token.attr:
+            if aligned_word is not None:
+                word_alignment[word_idx] = aligned_word
+            word_idx = aligned_token.attr['wid']
+            aligned_word = AlignedWord(
+                word=text_splitted[word_idx],
+                start_time=aligned_token.timestamp,
+                end_time=None,
+                phones=[]
+            )
+        aligned_word.phones.append(
+            AlignedToken(
+                token_id=tokenizer.id2token[aligned_token.attr['tk']],
+                timestamp=aligned_token.timestamp,
+                attr=None
+            )
+        )
+    return word_alignment
 
 
 def to_audacity_label_format(alignment_results, frame_duration, text):
