@@ -621,7 +621,7 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
                 word=text_splitted[word_idx],
                 start_time=aligned_token.timestamp,
                 end_time=None,
-                phones=[]
+                phones=[],
             )
         aligned_word.phones.append(
             AlignedToken(
@@ -633,22 +633,88 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
     return word_alignment
 
 
-def to_audacity_label_format(alignment_results, frame_duration, text):
+def get_audacity_labels(word_alignment, frame_duration):
     # To audacity: https://manual.audacityteam.org/man/importing_and_exporting_labels.html
-    text = text.split()
-    alignment_results_ = [(text[k], v*frame_duration) for k, v in sorted(alignment_results.items())] 
-
-    audacity_labels_str = "\n".join([f"{t:.2f}\t{t:.2f}\t{label}" for label, t in alignment_results_])
-    # print(audacity_labels)
     
-    # with open("audacity_labels.txt", "w") as fout:
-    #     print(audacity_labels_str, file=fout)
-
-    # str(Path("audacity_labels.txt").absolute())
+    alignment_results_ = [(w.word, w.start_time*frame_duration) for _, w in sorted(word_alignment.items())] 
+    audacity_labels_str = "\n".join([f"{t:.2f}\t{t:.2f}\t{label}" for label, t in alignment_results_])
     return audacity_labels_str
 
 
-def to_gentle_visualization(alignment_results, frame_duration, text):
+def get_gentle_visualization(word_alignment, tokenizer, frame_duration, audio_file, text, i_word_start=None, i_word_end=None):
     # align_to_gentle:
     # /exp/rhuang/meta/audio/examples/asr/librispeech_conformer_ctc_large/alignment/ali_torchaudio.py
-    pass
+
+    text_splitted = text.split()
+    if i_word_start is None:
+        i_word_start = 0
+    if i_word_end is None:
+        i_word_end = len(text_splitted)
+
+    # Get the json file of alignment results
+    transcript = " ".join(text_splitted[i_word_start: i_word_end])
+    words = []
+    char_offet = 0
+    for wid in range(i_word_start, i_word_end):
+        if wid in word_alignment:
+            w = word_alignment[wid]
+            
+            if len(words) > 0:  # Use the start time of this word as the end time of the previous word
+                words[-1]["end"] = f"{w.start_time * frame_duration:.2f}"
+            
+            words.append({
+                "word": w.word,
+                "alignedWord": tokenizer.text_normalize(w.word),
+                "case": "success",
+                "start": f"{w.start_time * frame_duration:.2f}",
+                "startOffset": char_offet,
+                "end": f"{w.start_time * frame_duration + 0.1:.2f}",
+                "endOffset": char_offet + len(w.word) + 1,
+                "phones": [
+                    {
+                        "duration": f"{frame_duration:.2f}",
+                        "phone": p.token_id,
+                    } for p in w.phones
+                ],
+            })
+        else:
+            w = text_splitted[wid]
+            w = AlignedWord(
+                word=w,
+                start_time=None,
+                end_time=None,
+                phones=[],
+            )
+            words.append({
+                "word": w.word,
+                "case": "not-found-in-audio",
+                "startOffset": char_offet,
+                "endOffset": char_offet + len(w.word) + 1,
+            })
+        
+        char_offet += (len(w.word) + 1)
+    
+    inline_json = {
+        "transcript": transcript,
+        "words": words,
+    }
+
+    import os
+    from pathlib import Path
+    import json
+
+    current_file_path = Path(os.path.abspath(__file__))
+    html_path = current_file_path.parent / "gentle" / "view_alignment.html"
+    audio_path = Path(audio_file).resolve()
+
+    htmltxt = open(html_path).read()
+    htmltxt = htmltxt.replace("var INLINE_JSON;", "var INLINE_JSON=%s;" % (json.dumps(inline_json)))
+    htmltxt = htmltxt.replace('src="a.wav"', f'src="{audio_path.name}"')
+    
+    open(audio_path.parent / 'index.html', 'w').write(htmltxt)
+    print(
+        f"Gentle visualization is saved to: {str(audio_path.parent / 'index.html')}\n" + \
+        f"Usage instrunctions:\n" + \
+        f"- Download both the audio file and the index.html file to the same folder in your local machine;\n" + \
+        f"- Open the index.html file in a browser."
+    )
