@@ -94,14 +94,21 @@ class AcousticModelModule(LightningModule):
         joined = ["".join(self.tokenizer.decode_flatten(utt)) for utt in indices]
         return joined
 
-    def align(self, batch: Batch):
-        # TODO: we may implement alignment according to:
+    def align(self, batch: Batch, tokens: List[int]):
+        # Implemented according to:
         # https://pytorch.org/audio/main/tutorials/ctc_forced_alignment_api_tutorial.html
+        assert batch.features.size(0) == 1, "Only single utterance is supported for forced alignment"
+
         emission = self.forward(batch)
         if emission is None:
             return None
         
-        
+        targets = torch.tensor([tokens], dtype=torch.int32, device="cpu")
+        alignments, scores = torchaudio.functional.forced_align(emission, targets, blank=self.blank_idx)
+
+        alignments, scores = alignments[0], scores[0]  # remove batch dimension for simplicity
+        scores = scores.exp()  # convert back to probability
+        return alignments, scores
 
     def forward(self, batch: Batch):
         if batch is None:
