@@ -97,7 +97,11 @@ class AcousticModelModule(LightningModule):
     def align(self, batch: Batch):
         # TODO: we may implement alignment according to:
         # https://pytorch.org/audio/main/tutorials/ctc_forced_alignment_api_tutorial.html
-        pass
+        emission = self.forward(batch)
+        if emission is None:
+            return None
+        
+        
 
     def forward(self, batch: Batch):
         if batch is None:

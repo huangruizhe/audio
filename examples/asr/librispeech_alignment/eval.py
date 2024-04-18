@@ -34,7 +34,7 @@ def run_eval(args):
     total_length = 0
     dataloader = data_module.test_dataloader()
     with torch.no_grad():
-        for idx, (batch, sample) in enumerate(dataloader):            
+        for idx, (batch, sample) in enumerate(dataloader):
             actual = sample[0][2]
             actual_tokenized = "".join(tokenizer.encode_flatten(actual, out_type=str))
             predicted = model.decode(batch)[0]
@@ -69,7 +69,7 @@ def cli_main():
         "--sp-model-path",
         type=pathlib.Path,
         help="Path to SentencePiece model.",
-        required=True,
+        required=False,
     )
     parser.add_argument(
         "--use-cuda",

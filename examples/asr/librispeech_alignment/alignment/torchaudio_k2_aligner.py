@@ -623,6 +623,9 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
                 end_time=None,
                 phones=[],
             )
+        # TODO: 
+        # Ideally, we should have a start_time and end_time for each token,
+        # just as in the HMM-GMM model.
         aligned_word.phones.append(
             AlignedToken(
                 token_id=tokenizer.id2token[aligned_token.attr['tk']],
