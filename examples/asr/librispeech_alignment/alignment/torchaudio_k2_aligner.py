@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 
 logfmt = "%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s"
-logging.basicConfig(level=logging.INFO, format=logfmt)
+logging.basicConfig(level=logging.INFO, format=logfmt, force=True)
 
 
 def uniform_segmentation_with_overlap(
@@ -164,6 +164,7 @@ def align(
     '''
     assert waveform_or_features.ndim == 3
     assert waveform_or_features.size(0) == 1
+    logging.info(f"The input is of shape: {waveform_or_features.shape}")
 
     #### Step (0): tokenize the text ####
     logging.info("Step (0): tokenize the text")
@@ -171,7 +172,7 @@ def align(
     logging.info(f"There are {len(tokenized_text)} words or {sum([len(l) for l in tokenized_text])} tokens in the text")
 
     #### Step (1): get the decoding graph ####
-    logging.info("Step (1): get the decoding graph")
+    logging.info("Step (1): get the decoding graph with `make_factor_transducer_word_level_index_with_skip`")
     decoding_graph, word_index_sym_tab, token_sym_tab = \
         make_factor_transducer_word_level_index_with_skip(
             tokenized_text,
