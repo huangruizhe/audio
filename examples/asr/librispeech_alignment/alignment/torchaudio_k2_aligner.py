@@ -5,10 +5,12 @@ from k2_icefall_utils import (
     get_best_paths,
     get_texts_with_timestamp,
 )
+from factor_transducer import make_factor_transducer_word_level_index_with_skip
 import itertools
 import lis  # https://github.com/huangruizhe/lis
 from dataclasses import dataclass
 from typing import Union
+from tqdm import tqdm
 
 
 logfmt = "%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s"
@@ -131,62 +133,132 @@ def align_segments(
 
 
 def align(
-    emissions,
-    graph,
-    segment_size,
-    overlap,
-    shortest_segment_size=0,
+    waveform_or_features,
+    text,
+    tokenizer,
+    model,
+    device,
+    do_segmentation=True,  # related to uniform segmentation
+    sample_rate=16000,   # how many frames in `waveform_or_features` are there for each second
+    segment_size=15.0,  # in seconds
+    overlap=2.0,  # in seconds
+    shortest_segment_size=0.2,  # in seconds
     batch_size=32,
-    do_segmentation=True,
+    model_frame_duration=0.02,  # in seconds, the frame duration of the model output
 ):
     '''
-    This function does alignment for long audio features using k2 library.
+    This function aligns long audio and noisy text in WFST framework.
 
     Args:
-        emissions: 3-D tensor of shape (1, T, C), where T is the number of frames.
-        graph: k2.Fsa, the decoding graph.
-        segment_size: an integer, the size of each segment.
-        overlap: an integer, the number of frames to overlap between segments.
-        shortest_segment_size: an integer, the minimum size of the last segment. If the last segment is shorter than this value, it will be discarded.
+        waveform_or_features: 3-D tensor of shape (1, T, C), where T is the number of frames. For the moment, we only support one long audio.
+        text: a string, the long and noisy text.
+        tokenizer: the tokenizer as defined in our library.
+        do_segmentation: a boolean, whether to segment the long audio into overlapping segments.
+                         It's True by default. But if you have already segmented the input to short segments, 
+                         you can set it to False.
+        sample_rate: an integer corresponding to how many frames in `waveform_or_features` are there for each second
+        segment_size: an integer, the size of each segment in seconds.
+        overlap: an integer, the size of overlap between segments in seconds.
+        shortest_segment_size: an integer, the minimum size in seconds of the last segment. If the last segment is shorter than this value, it will be discarded.
         batch_size: an integer, the batch size for alignment.
     '''
+    assert waveform_or_features.ndim == 3
+    assert waveform_or_features.size(0) == 1
 
-    # Step (1): cut the long audio features into overlapping segments
+    #### Step (0): tokenize the text ####
+    logging.info("Step (0): tokenize the text")
+    tokenized_text = tokenizer.encode(text)
+    logging.info(f"There are {len(tokenized_text)} words or {sum([len(l) for l in tokenized_text])} tokens in the text")
+
+    #### Step (1): get the decoding graph ####
+    logging.info("Step (1): get the decoding graph")
+    decoding_graph, word_index_sym_tab, token_sym_tab = \
+        make_factor_transducer_word_level_index_with_skip(
+            tokenized_text,
+            blank_penalty=0,  # TODO: we need to expose these arguments to the outside
+            skip_penalty=-0.5,
+            return_penalty=-18.0
+        )
+    decoding_graph = decoding_graph.to(device)
+    logging.info(f"There are {decoding_graph.shape[0]} nodes and {decoding_graph.num_arcs} arcs in the decoding graph for the text of {len(tokenized_text)} words.")
+    logging.info(f"The decoding graph is on device: {decoding_graph.device}")
+
+    #### Step (2): uniform segmentation ####
     if do_segmentation:
-        emissions_segmented, segment_lengths, segment_offsets = \
-            uniform_segmentation_with_overlap(emissions, segment_size, overlap, shortest_segment_size=shortest_segment_size)
+        logging.info("Step (2): uniform segmentation")
+        segments, segment_lengths, segment_offsets = uniform_segmentation_with_overlap(
+            waveform_or_features,
+            segment_size=int(segment_size * sample_rate),
+            overlap=int(overlap * sample_rate),
+            shortest_segment_size=int(shortest_segment_size * sample_rate),
+        )
+        segments = segments.squeeze(-1)  # Now segments is of shape (N, segment_size) for waveforms or (N, segment_size, D) for features
+        logging.info(f"segment.shape={segments.shape}, segment_lengths.shape={segment_lengths.shape}, segment_offsets.shape={segment_offsets.shape}")
     else:
-        assert emissions.size(0) == 1
-        emissions_segmented = emissions
-        segment_lengths = torch.tensor([emissions.size(1)])
-        segment_offsets = torch.tensor([0])
-    
-    # Use the graph's device
-    device = graph.device
+        logging.info("Step (2): skipping uniform segmentation")
 
-    # Step (2): do alignment for batches. 
-    # Hopefully, each batch can fit into the GPU memory.
-    results_hyps = list()
-    results_timestamps = list()
-    for i in range(0, emissions_segmented.size(0), batch_size):
-        batch_emissions = emissions_segmented[i: i+batch_size].to(device)
+    #### Step (3): obtain alignment for segments ####
+    logging.info("Step (3): obtain alignment for segments")
+    output_frames_offset = segment_offsets // (sample_rate * model_frame_duration)
+
+    alignment_results = list()
+    for i in tqdm(range(0, segments.size(0), batch_size)):
+        batch_segments = segments[i: i+batch_size].to(device)
         batch_segment_lengths = segment_lengths[i: i+batch_size]
+        batch_output_frames_offset = output_frames_offset[i: i+batch_size]
 
-        # find best alignment paths using k2 library and the input WFST graph
-        best_paths = get_best_paths(batch_emissions, batch_segment_lengths, decoding_graph)
-        best_paths = best_paths.detach().to('cpu')
+        with torch.inference_mode():
+            # Checkout the API of the forward function here: https://github.com/pytorch/audio/blob/main/src/torchaudio/pipelines/_wav2vec2/utils.py#L34
+            batch_emissions, batch_emissions_lengths = model(batch_segments.to(device), batch_segment_lengths.to(device))
 
-        decoding_results = get_texts_with_timestamp(best_paths)
-        token_ids_indices = decoding_results["hyps"]  # Note, here the "hyps" are actually indices 
-        timestamps = decoding_results["timestamps"]
+        # Attach the star dimension manually, see torchaudio issue #3772
+        star_dim = torch.empty((batch_emissions.size(0), batch_emissions.size(1), 1), device=batch_emissions.device, dtype=batch_emissions.dtype)
+        star_dim[:] = -5.0  # TODO: this is hard-wired for the moment
+        batch_emissions = torch.cat((batch_emissions, star_dim), 2)
 
-        # There can be empty result in `token_ids_indices`. 
-        # We put [1,1] as a placeholder for the ease of future processing
-        token_ids_indices = [tkid if len(tkid) > 0 else [1,1] for tkid in token_ids_indices]
-        token_ids_indices = [list(map(lambda x: x - 1, rg)) for rg in token_ids_indices]
+        # `token_ids` and `timestamps` will each be a list of lists.
+        # Each sublist corresponds to a segment in the batch.
+        batch_results = align_segments(
+            batch_emissions,
+            decoding_graph,
+            batch_emissions_lengths,
+        )
 
-        results_hyps.extend(token_ids_indices)
-        results_timestamps.extend(timestamps)
+        # The interpretation of `token.token_id` depends on the decoding graph.
+        # Here, in this tutorial, `token.token_id` is the key to the `word_index_sym_tab``
+        # and `token_sym_tab` dictionaries.
+        for aligned_tokens, offset in zip(batch_results, batch_output_frames_offset):
+            for token in aligned_tokens:
+                token.timestamp += offset  # This will become the absolute frame timestamp in the whole audio
+                if token.token_id == tokenizer.blk_id:
+                    continue
+                if token.token_id in word_index_sym_tab:
+                    token.attr["wid"] = word_index_sym_tab[token.token_id]
+                if token.token_id in token_sym_tab:
+                    token.attr["tk"] = token_sym_tab[token.token_id]
+
+        alignment_results.extend(batch_results)
+
+    #### Step (4): concatenate the alignment results for segments ####
+    logging.info("Step (4): concatenate the alignment results for segments")
+
+    # `resolved_alignment_results` is a list of `AlignedToken`
+    # `unaligned_text_indices` is a list of (start_word_index, end_word_index)
+    #    which corresponds to "holes" in the long text that are not aligned
+    resolved_alignment_results, unaligned_text_indices = concat_alignments(
+        alignment_results,
+        neighborhood_size=5,
+    )
+    logging.info(f"There are {len(resolved_alignment_results)} tokens aligned, while {len(unaligned_text_indices)} unaligned parts in the long text.")
+
+    #### Step (5): get the final word-level alignments ####
+    logging.info("Step (5): get the final word-level alignments")
+
+    # `word_alignment` is a dict of word index in the long text => AlignedWord object
+    word_alignment = get_final_word_alignment(resolved_alignment_results, text, tokenizer)
+    logging.info(f"There are {len(word_alignment)} words aligned in the long text.")
+
+    return word_alignment, unaligned_text_indices
     
     
 
