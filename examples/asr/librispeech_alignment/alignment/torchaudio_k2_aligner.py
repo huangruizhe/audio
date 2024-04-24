@@ -687,11 +687,20 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
     assert "wid" in alignment_results[0].attr
     for aligned_token in alignment_results:
         if "wid" in aligned_token.attr:
-            if aligned_word is not None:
+            if aligned_word is not None:  # Save the previous word
                 word_alignment[word_idx] = aligned_word
+                aligned_word = None
             word_idx = aligned_token.attr['wid']
+
+            # This `word_idx` was the placeholder we put in the WFST to mark the end of the text
+            if word_idx >= len(text_splitted):
+                assert word_idx == len(text_splitted)
+                word = None  # We need it to mark the word end of the last word
+            else:
+                word = text_splitted[word_idx]
+
             aligned_word = AlignedWord(
-                word=text_splitted[word_idx],
+                word=word,
                 start_time=aligned_token.timestamp,
                 end_time=None,
                 phones=[],
@@ -699,6 +708,10 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
         # TODO: 
         # Ideally, we should have a start_time and end_time for each token,
         # just as in the HMM-GMM model.
+        if 'tk' not in aligned_token.attr:
+            # This should only happens when aligned_token.attr['wid'] == len(text_splitted)
+            assert aligned_word.word is None
+            continue
         aligned_word.phones.append(
             AlignedToken(
                 token_id=tokenizer.id2token[aligned_token.attr['tk']],
@@ -706,6 +719,8 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
                 attr=None
             )
         )
+    if aligned_word is not None:  # Save the last word
+        word_alignment[word_idx] = aligned_word
     return word_alignment
 
 
