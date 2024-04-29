@@ -140,9 +140,50 @@ def get_best_paths(ctc_output, target_lengths, decoding_graph):
     return best_paths
 
 
+# https://github.com/k2-fsa/icefall/blob/master/icefall/utils.py#L427
+def get_alignments(best_paths: k2.Fsa, kind: str, return_ragged: bool = False):
+    """Extract labels or aux_labels from the best-path FSAs.
+
+    Args:
+      best_paths:
+        A k2.Fsa with best_paths.arcs.num_axes() == 3, i.e.
+        containing multiple FSAs, which is expected to be the result
+        of k2.shortest_path (otherwise the returned values won't
+        be meaningful).
+      kind:
+        Possible values are: "labels" and "aux_labels". Caution: When it is
+        "labels", the resulting alignments contain repeats.
+    Returns:
+      Returns a list of lists of int, containing the token sequences we
+      decoded. For `ans[i]`, its length equals to the number of frames
+      after subsampling of the i-th utterance in the batch.
+
+    Example:
+      When `kind` is `labels`, one possible alignment example is (with
+      repeats)::
+
+        c c c blk a a blk blk t t t blk blk
+
+     If `kind` is `aux_labels`, the above example changes to::
+
+        c blk blk blk a blk blk blk t blk blk blk blk
+
+    """
+    assert kind in ("labels", "aux_labels")
+    # arc.shape() has axes [fsa][state][arc], we remove "state"-axis here
+    token_shape = best_paths.arcs.shape().remove_axis(1)
+    # token_shape has axes [fsa][arc]
+    tokens = k2.RaggedTensor(token_shape, getattr(best_paths, kind).contiguous())
+    if return_ragged:
+        return tokens
+    else:
+        tokens = tokens.remove_values_eq(-1)
+        return tokens.tolist()
+
+
 # https://github.com/k2-fsa/icefall/blob/master/icefall/utils.py#L359
 def get_texts_with_timestamp(
-    best_paths: k2.Fsa, return_ragged: bool = False
+    best_paths: k2.Fsa
 ):
     """Extract the texts (as word IDs) and timestamps (as frame indexes)
     from the best-path FSAs.
@@ -159,43 +200,80 @@ def get_texts_with_timestamp(
       Returns a list of lists of int, containing the label sequences we
       decoded.
     """
-    if isinstance(best_paths.aux_labels, k2.RaggedTensor):
-        all_aux_shape = (
-            best_paths.arcs.shape().remove_axis(1).compose(best_paths.aux_labels.shape)
-        )
-        all_aux_labels = k2.RaggedTensor(all_aux_shape, best_paths.aux_labels.values)
-        # remove 0's and -1's.
-        aux_labels = best_paths.aux_labels.remove_values_leq(0)
-        # TODO: change arcs.shape() to arcs.shape
-        aux_shape = best_paths.arcs.shape().compose(aux_labels.shape)
-        # remove the states and arcs axes.
-        aux_shape = aux_shape.remove_axis(1)
-        aux_shape = aux_shape.remove_axis(1)
-        aux_labels = k2.RaggedTensor(aux_shape, aux_labels.values)
-    else:
-        # remove axis corresponding to states.
-        aux_shape = best_paths.arcs.shape().remove_axis(1)
-        all_aux_labels = k2.RaggedTensor(aux_shape, best_paths.aux_labels)
-        # remove 0's and -1's.
-        aux_labels = all_aux_labels.remove_values_leq(0)
+    # This is a modified version from icefall's original version of codes
 
+    # Get labels
+    labels = get_alignments(best_paths, kind="labels", return_ragged=False)
+    
+    # Get aux labels
+    all_aux_labels = get_alignments(best_paths, kind="aux_labels", return_ragged=True)
+    all_aux_labels = all_aux_labels.remove_values_eq(-1)
+    # remove 0's and -1's.
+    aux_labels = all_aux_labels.remove_values_leq(0)
     assert aux_labels.num_axes == 2
+    all_aux_labels = all_aux_labels.tolist()
+    aux_labels = aux_labels.tolist()
 
+    # Get timestamps
     timestamps = []
-    if isinstance(best_paths.aux_labels, k2.RaggedTensor):
-        for p in range(all_aux_labels.dim0):
-            time = []
-            for i, arc in enumerate(all_aux_labels[p].tolist()):
-                if len(arc) == 1 and arc[0] > 0:
-                    time.append(i)
-            timestamps.append(time)
-    else:
-        for labels in all_aux_labels.tolist():
-            time = [i for i, v in enumerate(labels) if v > 0]
-            timestamps.append(time)
+    for l in all_aux_labels:
+        time = [i for i, v in enumerate(l) if v > 0]
+        timestamps.append(time)
+
+    # Get confidence scores
+    token_shape = best_paths.arcs.shape().remove_axis(1)
+    all_conf_scores = k2.RaggedTensor(token_shape, best_paths.scores.contiguous()).tolist()
+    all_conf_scores = [l[:-1] for l in all_conf_scores]  # remove the last item corresponding to -1 label
+    
+    # Method 1: this is simple; however, it may not be optimal
+    # conf_scores = [[s for s, l in zip(l1, l2) if l > 0] for l1, l2 in zip(all_conf_scores, all_aux_labels)]
+    
+    # Method 2: use a pooling mechanism to get the best score for an aux_label; 
+    conf_scores = []
+    for i, (_labels, _aux_labels, _scores) in enumerate(zip(labels, all_aux_labels, all_conf_scores)):
+        _conf_scores = []
+        cur_token_scores = None
+        for l, l_aux, s in zip(_labels, _aux_labels, _scores):
+            if l_aux == 0:
+                continue
+            if l_aux > 0:  # There is a new aux_label
+                # Pool the scores of the previous non-blank token
+                if cur_token_scores is not None:
+                    assert len(cur_token_scores) > 0  # There must be at least a score
+                    pool_score = max(cur_token_scores)  # We use max pooling here
+                    _conf_scores.append(pool_score)
+                cur_token_scores = []
+            assert cur_token_scores is not None
+            cur_token_scores.append(s)
+        # The last token
+        if cur_token_scores is not None:
+            assert len(cur_token_scores) > 0
+            pool_score = max(cur_token_scores)
+            _conf_scores.append(pool_score)
+        assert len(_conf_scores) == len(aux_labels[i])
+        conf_scores.append(_conf_scores)
+
+    # best_paths[0].arcs.values()[:, :-1], best_paths[0].scores.tolist()
+    # for i in range(best_paths.shape[0]):
+    #     all([x1 == x2 for x1, x2 in zip(scores[i].tolist(), best_paths[i].scores.tolist())])
+
+    # Convert to lists
+    assert all([len(l1) == len(l2) for l1, l2 in zip(labels, all_aux_labels)])
+    assert all([len(l1) == len(l2) for l1, l2 in zip(labels, all_conf_scores)])
+    assert all([len(l1) == len(l2) for l1, l2 in zip(aux_labels, timestamps)])
+    assert all([len(l1) == len(l2) for l1, l2 in zip(aux_labels, conf_scores)])
 
     return {
+        # They have the same lengths, corresponding to
+        # the "aux labels" with -1 and 0 removed
         "timestamps": timestamps,
-        "hyps": aux_labels if return_ragged else aux_labels.tolist(),
+        "hyps": aux_labels,
+        "conf_scores": conf_scores,
+
+        # The following has the same lengths corresponding to
+        # the frames or the "labels"
+        "all_labels": labels,
+        "all_aux_labels": all_aux_labels,
+        "all_conf_scores": all_conf_scores,
     }
 

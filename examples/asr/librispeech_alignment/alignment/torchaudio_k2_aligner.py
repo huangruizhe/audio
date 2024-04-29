@@ -5,7 +5,10 @@ from k2_icefall_utils import (
     get_best_paths,
     get_texts_with_timestamp,
 )
-from factor_transducer import make_factor_transducer_word_level_index_with_skip
+from factor_transducer import (
+    make_factor_transducer_word_level_index_with_skip,
+    make_factor_transducer_word_level_index,
+)
 import itertools
 import lis  # https://github.com/huangruizhe/lis
 from dataclasses import dataclass
@@ -77,6 +80,7 @@ class AlignedToken:
     token_id: Union[str, int]
     timestamp: int
     attr: dict
+    score: float
 
 @dataclass
 class AlignedWord:
@@ -84,6 +88,7 @@ class AlignedWord:
     start_time: int
     end_time: int
     phones: list
+
 
 def align_segments(
     emissions,
@@ -114,6 +119,7 @@ def align_segments(
     decoding_results = get_texts_with_timestamp(best_paths)
     hyps = decoding_results["hyps"]
     timestamps = decoding_results["timestamps"]
+    conf_scores = decoding_results["conf_scores"]
 
     # # There can be empty result in `token_ids_indices`. 
     # # We put [1,1] as a placeholder for the ease of future processing
@@ -121,11 +127,12 @@ def align_segments(
     # token_ids_indices = [list(map(lambda x: x - 1, rg)) for rg in token_ids_indices]
 
     results = []
-    for hyp, timestamp in zip(hyps, timestamps):
+    for hyp, timestamp, score in zip(hyps, timestamps, conf_scores):
         assert len(hyp) == len(timestamp)  # `hyp` and `timestamp` are both lists of integers
+        assert len(hyp) == len(score)
         aligned_tokens = []
-        for tid, ts in zip(hyp, timestamp):
-            aligned_tokens.append(AlignedToken(tid, ts, {}))
+        for tid, ts, s in zip(hyp, timestamp, score):
+            aligned_tokens.append(AlignedToken(tid, ts, {}, s))
         results.append(aligned_tokens)
 
     return results
@@ -180,6 +187,12 @@ def align(
             skip_penalty=-0.5,
             return_penalty=-18.0
         )
+    # logging.info("Step (1): get the decoding graph with `make_factor_transducer_word_level_index` without any skips")
+    # decoding_graph, word_index_sym_tab, token_sym_tab = \
+    #     make_factor_transducer_word_level_index(
+    #         tokenized_text,
+    #         blank_penalty=0,
+    #     )
     decoding_graph = decoding_graph.to(device)
     logging.info(f"There are {decoding_graph.shape[0]} nodes and {decoding_graph.num_arcs} arcs in the decoding graph for the text of {len(tokenized_text)} words.")
     logging.info(f"The decoding graph is on device: {decoding_graph.device}")
@@ -716,7 +729,8 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
             AlignedToken(
                 token_id=tokenizer.id2token[aligned_token.attr['tk']],
                 timestamp=aligned_token.timestamp,
-                attr=None
+                attr=None,
+                score=aligned_token.score,
             )
         )
     if aligned_word is not None:  # Save the last word
