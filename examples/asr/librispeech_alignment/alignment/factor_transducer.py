@@ -421,7 +421,8 @@ def make_factor_transducer_word_level_index_with_skip(
     # arc: (ss, ee, l1, l2, weight)
     arcs.append((start_state, start_state, eps, eps, blank_penalty))
     
-    word_index_sym_tab = {eps: eps, 1: 0}  # need to handle special cases
+    # We hope to have two aux labels. So we make a lookup table
+    word_index_sym_tab = {eps: eps, 1: 0}  # need to handle corner cases
     token_sym_tab = {eps: eps}
     sym_id = 1
     
@@ -430,7 +431,7 @@ def make_factor_transducer_word_level_index_with_skip(
     prev_p = None
     token_cnt = 0
 
-    blank_states_for_skip = []
+    blank_states_for_skip = []  # use -1 to seperate the states of different words
     
     for i_w, w in enumerate(word_id_list):
         # `w` is the list of tokens for this word
@@ -456,6 +457,9 @@ def make_factor_transducer_word_level_index_with_skip(
             cur_blk_state = cur_non_blk_state + 1
 
             token_sym_tab[sym_id] = p
+
+            if i_p == 0:
+                blank_states_for_skip.append(-1)
             blank_states_for_skip.append(cur_blk_state)
 
             # 1) link it to the existing graph
@@ -495,7 +499,11 @@ def make_factor_transducer_word_level_index_with_skip(
             sym_id += 1
 
     # 4) add skip arcs
+    # Note: we need to avoid "leakage" of a word to the other words -- i.e., 
+    # the phones of this word go to the phones of the other words without outputing word indices
     for s1, s2 in zip(blank_states_for_skip, blank_states_for_skip[1:-1]):
+        if s1 == -1 or s2 == -1:  # word boundary
+            continue
         arcs.append((s1, s2, eps, eps, skip_penalty))
 
     assert prev_non_blk_state == final_state - 3, f"cur_state={prev_non_blk_state}, final_state={final_state}"
