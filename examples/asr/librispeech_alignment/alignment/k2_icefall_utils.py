@@ -183,7 +183,9 @@ def get_alignments(best_paths: k2.Fsa, kind: str, return_ragged: bool = False):
 
 # https://github.com/k2-fsa/icefall/blob/master/icefall/utils.py#L359
 def get_texts_with_timestamp(
-    best_paths: k2.Fsa
+    best_paths: k2.Fsa,
+    skip_id,
+    return_id,
 ):
     """Extract the texts (as word IDs) and timestamps (as frame indexes)
     from the best-path FSAs.
@@ -201,6 +203,8 @@ def get_texts_with_timestamp(
       decoded.
     """
     # This is a modified version from icefall's original version of codes
+
+    assert skip_id < return_id
 
     # Get labels
     labels = get_alignments(best_paths, kind="labels", return_ragged=False)
@@ -228,29 +232,34 @@ def get_texts_with_timestamp(
     # Method 1: this is simple; however, it may not be optimal
     # conf_scores = [[s for s, l in zip(l1, l2) if l > 0] for l1, l2 in zip(all_conf_scores, all_aux_labels)]
     
-    # Method 2: use a pooling mechanism to get the best score for an aux_label; 
+    # Method 2: use a pooling mechanism to get the best score for an aux_label
     conf_scores = []
+    # pooling_func = lambda ll: max(ll)  # max pooling
+    pooling_func = lambda ll: sum(ll)/len(ll)  # mean pooling
     for i, (_labels, _aux_labels, _scores) in enumerate(zip(labels, all_aux_labels, all_conf_scores)):
         _conf_scores = []
         cur_token_scores = None
+        skip_return_cnt = 0
         for l, l_aux, s in zip(_labels, _aux_labels, _scores):
             if l_aux == 0:
                 continue
-            if l_aux > 0:  # There is a new aux_label
+            if 0 < l_aux < skip_id:  # There is a new aux_label
                 # Pool the scores of the previous non-blank token
                 if cur_token_scores is not None:
                     assert len(cur_token_scores) > 0  # There must be at least a score
-                    pool_score = max(cur_token_scores)  # We use max pooling here
+                    pool_score = pooling_func(cur_token_scores)
                     _conf_scores.append(pool_score)
                 cur_token_scores = []
+            if l_aux >= skip_id:
+                skip_return_cnt += 1
             assert cur_token_scores is not None
             cur_token_scores.append(s)
         # The last token
         if cur_token_scores is not None:
             assert len(cur_token_scores) > 0
-            pool_score = max(cur_token_scores)
+            pool_score = pooling_func(cur_token_scores)
             _conf_scores.append(pool_score)
-        assert len(_conf_scores) == len(aux_labels[i])
+        assert len(_conf_scores) == len(aux_labels[i]) - skip_return_cnt
         conf_scores.append(_conf_scores)
 
     # best_paths[0].arcs.values()[:, :-1], best_paths[0].scores.tolist()
@@ -261,7 +270,7 @@ def get_texts_with_timestamp(
     assert all([len(l1) == len(l2) for l1, l2 in zip(labels, all_aux_labels)])
     assert all([len(l1) == len(l2) for l1, l2 in zip(labels, all_conf_scores)])
     assert all([len(l1) == len(l2) for l1, l2 in zip(aux_labels, timestamps)])
-    assert all([len(l1) == len(l2) for l1, l2 in zip(aux_labels, conf_scores)])
+    assert all([len(l1) >= len(l2) for l1, l2 in zip(aux_labels, conf_scores)])
 
     return {
         # They have the same lengths, corresponding to

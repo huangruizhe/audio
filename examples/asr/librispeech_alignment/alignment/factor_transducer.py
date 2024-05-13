@@ -386,8 +386,8 @@ def make_factor_transducer_word_level_index(word_id_list, return_str=False, blan
 
 
 def make_factor_transducer_word_level_index_with_skip(
-    word_id_list, 
-    return_str=False, 
+    word_id_list,
+    return_str=False,
     blank_penalty=0, 
     skip_penalty=-0.5, 
     return_penalty=None, 
@@ -411,6 +411,9 @@ def make_factor_transducer_word_level_index_with_skip(
     '''
 
     word_id_list_flattened = flatten_list(word_id_list)
+
+    skip_id = 2*len(word_id_list_flattened) + 1
+    return_id = skip_id + 1
 
     arcs = []
     start_state = 0
@@ -475,7 +478,7 @@ def make_factor_transducer_word_level_index_with_skip(
                     word_index_sym_tab[sym_id] = i_w
 
             # 2) draw the graph of this token
-            arcs.append((cur_non_blk_state, cur_non_blk_state, p, sym_id, 0 + noneps_bonus))
+            arcs.append((cur_non_blk_state, cur_non_blk_state, p, eps, 0 + noneps_bonus))
             arcs.append((cur_non_blk_state, cur_blk_state, eps, eps, 0))
             arcs.append((cur_blk_state, cur_blk_state, eps, eps, 0))
 
@@ -489,7 +492,7 @@ def make_factor_transducer_word_level_index_with_skip(
 
                 # 5) add return arcs
                 if return_penalty is not None:
-                    arcs.append((cur_non_blk_state, start_state, eps, eps, return_penalty))
+                    arcs.append((cur_non_blk_state, start_state, eps, return_id, return_penalty))
 
             prev_non_blk_state = cur_non_blk_state
             prev_blk_state = cur_blk_state
@@ -504,7 +507,7 @@ def make_factor_transducer_word_level_index_with_skip(
     for s1, s2 in zip(blank_states_for_skip, blank_states_for_skip[1:-1]):
         if s1 == -1 or s2 == -1:  # word boundary
             continue
-        arcs.append((s1, s2, eps, eps, skip_penalty))
+        arcs.append((s1, s2, eps, skip_id, skip_penalty))
 
     assert prev_non_blk_state == final_state - 3, f"cur_state={prev_non_blk_state}, final_state={final_state}"
     arcs.append((final_blk_state, final_blk_state, eps, eps, blank_penalty))
@@ -513,6 +516,9 @@ def make_factor_transducer_word_level_index_with_skip(
     arcs.append((prev_blk_state, final_blk_state, eps, sym_id, 0))
     arcs.append((final_state,))
     word_index_sym_tab[sym_id] = i_w + 1
+
+    assert skip_id > sym_id, f"Please increase your skip_id={skip_id} to be greater than {sym_id}"
+    assert skip_id > i_w + 1, f"Please increase your skip_id={skip_id} to be greater than {i_w + 1}"
 
     new_arcs = sorted(arcs, key=lambda arc: arc[0])
     new_arcs = [" ".join(map(str, arc)) for arc in new_arcs]
@@ -523,6 +529,8 @@ def make_factor_transducer_word_level_index_with_skip(
     else:
         fst = k2.Fsa.from_str(new_arcs, acceptor=False)
         fst = k2.arc_sort(fst)
+        fst.skip_id = int(skip_id)
+        fst.return_id = int(return_id)
         return fst, word_index_sym_tab, token_sym_tab
 
 

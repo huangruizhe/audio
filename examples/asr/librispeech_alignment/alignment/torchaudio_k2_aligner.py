@@ -1,6 +1,7 @@
 import k2
 import logging
 import torch
+import math
 from k2_icefall_utils import (
     get_best_paths,
     get_texts_with_timestamp,
@@ -94,6 +95,9 @@ def align_segments(
     emissions,
     decoding_graph,
     segment_lengths,
+    per_frame_score_threshold=0.5,
+    skip_percentage_threshold=0.2,
+    return_arcs_num_threshold=3,
 ):
     '''
     This function does alignment for a batch of segments using k2 library.
@@ -107,6 +111,14 @@ def align_segments(
         timestamps: a list of lists. Each sublist contains the timestamps corresponding to the labels.
     '''
 
+    # Note:
+    # There can be totally wrong alignment here.
+    # Basically, we will get the "ASR" decoding results based on the decoding graph, which can be kinda flexible (with factor transducer, skip and return arcs).
+    # However, imagine that the audio segment does not match the text at all, e.g., audio="Los Angeles office of health and wellness", text="also the less".
+    # We can actually find a path of "also the less" with sufficient confidence in the audio "Los [A]nge[l]e[s] [o]ffice of heal[th] and w[el]ln[ess]".
+    # We need to device some heuristics to detect this kind of situation.
+    # That is, if certain condition is satisfied, we may reject the alignment of a segment.
+
     # Use the graph's device
     device = decoding_graph.device
     emissions = emissions.to(device)
@@ -115,8 +127,12 @@ def align_segments(
     best_paths = get_best_paths(emissions, segment_lengths, decoding_graph)
     best_paths = best_paths.detach().to('cpu')
 
-    # Get the output labels and timestamps from the best paths
-    decoding_results = get_texts_with_timestamp(best_paths)
+    # Get the output labels, timestamps and confidence scores from the best paths
+    decoding_results = get_texts_with_timestamp(
+        best_paths,
+        skip_id=decoding_graph.skip_id,
+        return_id=decoding_graph.return_id,
+    )
     hyps = decoding_results["hyps"]
     timestamps = decoding_results["timestamps"]
     conf_scores = decoding_results["conf_scores"]
@@ -126,16 +142,35 @@ def align_segments(
     # token_ids_indices = [tkid if len(tkid) > 0 else [1,1] for tkid in token_ids_indices]
     # token_ids_indices = [list(map(lambda x: x - 1, rg)) for rg in token_ids_indices]
 
-    results = []
-    for hyp, timestamp, score in zip(hyps, timestamps, conf_scores):
+    # Get the segment-level confidence scores
+    segment_scores = best_paths.get_tot_scores(use_double_scores=True, log_semiring=True)
+    segment_scores_per_frame = segment_scores / segment_lengths.cpu()
+
+    # Device some heuristic mechanism to reject a segment
+    # If one of the following holds:
+    # - the `segment_scores_per_frame` is less than the threshold in probability domain
+    # - more than 20% of the non-blank tokens are skip_ids
+    # - there are >=3 return_ids
+    condition1 = (segment_scores_per_frame < math.log(per_frame_score_threshold)).tolist()
+    condition2 = [len([_ for _ in hyps[i] if _ == decoding_graph.skip_id]) / len(hyps[i]) > skip_percentage_threshold for i in range(len(hyps))]
+    condition3 = [len([_ for _ in hyps[i] if _ > decoding_graph.skip_id]) >= return_arcs_num_threshold for i in range(len(hyps))]
+    reject_segments = [c1 or c2 or c3 for c1, c2, c3 in zip(condition1, condition2, condition3)]
+
+    # Remove skip/return ids from the symbols
+    timestamps = [[ts for tid, ts in zip(hyp, timestamp) if tid < decoding_graph.skip_id] for hyp, timestamp in zip(hyps, timestamps)]
+    hyps = [[tid for tid in hyp if tid < decoding_graph.skip_id] for hyp in hyps]
+
+    segment_results = []
+    for hyp, timestamp, score, reject in zip(hyps, timestamps, conf_scores, reject_segments):
         assert len(hyp) == len(timestamp)  # `hyp` and `timestamp` are both lists of integers
         assert len(hyp) == len(score)
         aligned_tokens = []
-        for tid, ts, s in zip(hyp, timestamp, score):
-            aligned_tokens.append(AlignedToken(tid, ts, {}, s))
-        results.append(aligned_tokens)
+        if not reject:
+            for tid, ts, s in zip(hyp, timestamp, score):
+                aligned_tokens.append(AlignedToken(tid, ts, {}, s))
+        segment_results.append(aligned_tokens)
 
-    return results
+    return segment_results
 
 
 
