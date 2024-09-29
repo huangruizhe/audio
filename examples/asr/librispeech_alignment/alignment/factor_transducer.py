@@ -392,6 +392,7 @@ def make_factor_transducer_word_level_index_with_skip(
     skip_penalty=-0.5, 
     return_penalty=None, 
     noneps_bonus=0.0,
+    skip_id = None,
 ):
     '''
         This is a modification of `make_factor_transducer_word_level_index`, but we allow skip arcs instead of a standard factor transducer
@@ -412,7 +413,8 @@ def make_factor_transducer_word_level_index_with_skip(
 
     word_id_list_flattened = flatten_list(word_id_list)
 
-    skip_id = 2*len(word_id_list_flattened) + 1
+    if skip_id is None:
+        skip_id = 2*len(word_id_list_flattened) + 1
     return_id = skip_id + 1
 
     arcs = []

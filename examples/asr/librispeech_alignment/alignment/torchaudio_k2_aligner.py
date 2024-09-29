@@ -120,7 +120,10 @@ def align_segments(
     # That is, if certain condition is satisfied, we may reject the alignment of a segment.
 
     # Use the graph's device
-    device = decoding_graph.device
+    if type(decoding_graph) == list:
+        device = decoding_graph[0].device
+    else:
+        device = decoding_graph.device
     emissions = emissions.to(device)
 
     # Find best alignment paths using k2 library and the input WFST graph
@@ -642,8 +645,10 @@ def concat_alignments(alignment_results, neighborhood_size=5):
     # the words starting from s and ending at e (inclusive) in the original transcript do not appear in the alignment results.
     unaligned_text_indices = find_unaligned_text(rg_min, rg_max, set_lis_results)
 
-    # # For some unaligned parts, we don't need to realign them cos they are too short
-    # handle_failed_groups(no_need_to_realign, alignment_results)
+    # Heuristics: for some unaligned parts, we don't need to realign them 
+    # -- cos they are too short
+    # TODO: in the future, we should forced align them for better accuracy
+    # handle_failed_groups(unaligned_text_indices, resolved_alignment_results)
 
     return resolved_alignment_results, unaligned_text_indices
 
@@ -772,6 +777,39 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
     if aligned_word is not None:  # Save the last word
         word_alignment[word_idx] = aligned_word
     return word_alignment
+
+
+def second_pass_fa(word_alignment, text, tokenizer, unaligned_text_indices, waveform, frame_duration):
+    # Second-pass forced alignment for the unaligned parts
+    # In this case, we penalize skip arcs a lot
+    # We need to re-align the unaligned parts
+    
+    text_splitted = text.split()
+
+    # Get the segments
+    for ss, ee in unaligned_text_indices:
+        # Include the left and right (aligned) neighbors
+        # (ss - 1): aligned
+        # (ss): unaligned
+        # ... : unaligned
+        # (ee): unaligned
+        # (ee + 1): aligned
+        
+        # Indices range
+        part_range = list(range((max(ss - 1, 0), min(ee + 1, len(text_splitted)))))
+        
+        # Text part
+        text_part = " ".join(text_splitted[part_range[0]: part_range[-1]+1])
+        
+        # Audio part
+        assert part_range[0] in word_alignment
+        assert part_range[-1] not in word_alignment
+        assert part_range[-1] + 1 in word_alignment
+        start_time = word_alignment[part_range[0]].start_time  # in frames
+        end_time = word_alignment[part_range[-1] + 1].start_time
+        audio_part = waveform[start_time]
+
+        # Get the features
 
 
 def get_audacity_labels(word_alignment, frame_duration):
