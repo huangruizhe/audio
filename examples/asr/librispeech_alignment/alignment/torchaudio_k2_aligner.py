@@ -152,7 +152,7 @@ def align_segments(
     # - more than 20% of the non-blank tokens are skip_ids
     # - there are >=3 return_ids
     condition1 = (segment_scores_per_frame < math.log(per_frame_score_threshold)).tolist()
-    condition2 = [len([_ for _ in hyps[i] if _ == decoding_graph.skip_id]) / len(hyps[i]) > skip_percentage_threshold for i in range(len(hyps))]
+    condition2 = [len([_ for _ in hyps[i] if _ == decoding_graph.skip_id]) > skip_percentage_threshold * len(hyps[i]) for i in range(len(hyps))]
     condition3 = [len([_ for _ in hyps[i] if _ > decoding_graph.skip_id]) >= return_arcs_num_threshold for i in range(len(hyps))]
     reject_segments = [c1 or c2 or c3 for c1, c2, c3 in zip(condition1, condition2, condition3)]
 
