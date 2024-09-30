@@ -16,6 +16,7 @@ import lis  # https://github.com/huangruizhe/lis
 from dataclasses import dataclass
 from typing import Union
 from tqdm import tqdm
+import torchaudio.functional as F
 
 
 logfmt = "%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s"
@@ -787,11 +788,39 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
     return word_alignment
 
 
+def align(emission, tokens, device):
+    targets = torch.tensor([tokens], dtype=torch.int32, device=device)
+    alignments, scores = F.forced_align(emission, targets, blank=0)
+
+    alignments, scores = alignments[0], scores[0]  # remove batch dimension for simplicity
+    # scores = scores.exp()  # convert back to probability
+    return alignments, scores
+
+
+def unflatten(list_, lengths):
+    assert len(list_) == sum(lengths)
+    i = 0
+    ret = []
+    for l in lengths:
+        ret.append(list_[i : i + l])
+        i += l
+    return ret
+
+
+# Issue:
+# 1. The WFST-based shortest path in k2 is based on heuristic search. It is not guaranteed to be optimal
+#    However, WFST can be flexible in specifying the graph
+# 2. The torchaudio align function is based on viterbi algorithm which is optimal thanks to dynamic programming
+#    However, it cannot skip a word
+# 3. We are going to combine the benefits from both worlds, in an engineering way:
+#    For the beginning and ending segments, we will use WFST to decide with word appears in the utterance, 
+#    and use the timestamp from the torchaudio alignment.
+
 def second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligned_text_indices, waveform, frame_duration, device):
     # Second-pass forced alignment for the unaligned parts
     # In this case, we penalize skip arcs a lot
     # We need to re-align the unaligned parts
-    
+
     text_splitted = text.split()
 
     # Collect the unaligned segments
@@ -803,13 +832,13 @@ def second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligne
         # ... : unaligned
         # (ee): unaligned
         # (ee + 1): aligned
-        
+
         # Indices range
         part_range = list(range(max(ss - 1, 0), min(ee + 1, len(text_splitted))))
-        
+
         # Text part
         text_part = " ".join(text_splitted[part_range[0]: part_range[-1]+1])
-        
+
         # Audio part
         assert part_range[0] in word_alignment
         assert part_range[-1] not in word_alignment
@@ -823,10 +852,39 @@ def second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligne
 
         unaligned_segments.append((ss, ee, part_range, text_part, audio_part, start_frame))
 
+    # Add two special segments: the beginning and the end
+    # We will extend 10 words on each side
+    w_extension = 10
+    left = min(word_alignment.keys())
+    right = max(word_alignment.keys())
+
+    # left
+    ss = left - w_extension
+    ee = left
+    part_range = list(range(max(ss - 1, 0), min(ee + 1, len(text_splitted))))
+    text_part = " ".join(text_splitted[part_range[0]: part_range[-1]+1])
+    end_frame = word_alignment[part_range[-1] + 1].start_time
+    _e = int(end_frame * sample_rate * frame_duration) + 128
+    audio_part = waveform[:, :_e, :]
+    audio_part = audio_part.squeeze(0).squeeze(-1)
+    unaligned_segments = [(ss, ee, part_range, text_part, audio_part, torch.tensor(0))] + unaligned_segments
+
+    # right
+    ss = right
+    ee = right + w_extension
+    part_range = list(range(max(ss - 1, 0), min(ee + 1, len(text_splitted))))
+    text_part = " ".join(text_splitted[part_range[0]: part_range[-1]+1])
+    start_frame = word_alignment[part_range[0]].start_time  # in frames
+    _s = int(start_frame * sample_rate * frame_duration)
+    audio_part = waveform[:, _s:, :]
+    audio_part = audio_part.squeeze(0).squeeze(-1)
+    unaligned_segments = unaligned_segments + [(ss, ee, part_range, text_part, audio_part, start_frame)]
+
     # Pad and batchify the segments
     segment_lengths = [len(seg[4]) for seg in unaligned_segments]
     segment_lengths = torch.tensor(segment_lengths)
     batched_segments = torch.nn.utils.rnn.pad_sequence([seg[4] for seg in unaligned_segments], batch_first=True)
+    batch_output_frames_offset = [seg[5] for seg in unaligned_segments]
 
     # Get the decoding graph, with high penalty for skip
     ttk = [tokenizer.encode(tokenizer.text_normalize(seg[3])) for seg in unaligned_segments]
@@ -841,27 +899,26 @@ def second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligne
             make_factor_transducer_word_level_index_with_skip(
                 text_tokenized,
                 blank_penalty=0,
-                skip_penalty=-8.0,
+                skip_penalty=-5.0,
                 return_penalty=-18.0,
                 skip_id = skip_id,
             )
         decoding_graphs.append(decoding_graph.to(device))
         decoding_graphs_auxiliary.append((word_index_sym_tab, token_sym_tab))
-    
+
     # Align
     with torch.inference_mode():
         # Checkout the API of the forward function here: https://github.com/pytorch/audio/blob/main/src/torchaudio/pipelines/_wav2vec2/utils.py#L34
         batch_emissions, batch_emissions_lengths = \
             model(
-                batched_segments.to(device), 
+                batched_segments.to(device),
                 segment_lengths.to(device)
             )
 
     # Attach the star dimension manually, see torchaudio issue #3772
     star_dim = torch.empty((batch_emissions.size(0), batch_emissions.size(1), 1), device=batch_emissions.device, dtype=batch_emissions.dtype)
-    star_dim[:] = -5.0
+    star_dim[:] = -3.0
     batch_emissions = torch.cat((batch_emissions, star_dim), 2)
-    batch_output_frames_offset = [seg[5] for seg in unaligned_segments]
 
     # `token_ids` and `timestamps` will each be a list of lists.
     # Each sublist corresponds to a segment in the batch.
@@ -870,6 +927,25 @@ def second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligne
         decoding_graphs,
         batch_emissions_lengths,
     )
+
+    # Handle the beginning and ending segments
+    bes = [batch_emissions[0], batch_emissions[-1]]
+    uss = [unaligned_segments[0], unaligned_segments[-1]]
+    bels = [batch_emissions_lengths[0], batch_emissions_lengths[-1]]
+    special_handling = []
+    for emission, seg, l in zip(bes, uss, bels):
+        tokens = tokenizer.encode(tokenizer.text_normalize(seg[3]))
+        flattened_tokens = flatten_list(tokens)
+        emission = emission[:l]
+        emission = emission.unsqueeze(0)
+        aligned_tokens, alignment_scores = align(emission, flattened_tokens, device)
+        token_spans = F.merge_tokens(aligned_tokens, alignment_scores)
+        word_spans = unflatten(token_spans, [len(word) for word in tokens])
+        special_handling.append(word_spans)
+
+    del batch_emissions
+    del decoding_graphs
+    del batch_emissions_lengths
 
     # The interpretation of `token.token_id` depends on the decoding graph.
     # Here, in this tutorial, `token.token_id` is the key to the `word_index_sym_tab``
@@ -887,19 +963,52 @@ def second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligne
                 token.attr["tk"] = token_sym_tab[token.token_id]
 
     # Update `word_alignment`
+    delta_word_alignment = dict()
     for i, seg in enumerate(unaligned_segments):
         _resolved_alignment_results, _unaligned_text_indices = concat_alignments(
             [batch_results[i]],
             neighborhood_size=5,
         )
+
+        if i == 0:
+            word_spans = special_handling[0]
+        elif i == len(unaligned_segments) - 1:
+            word_spans = special_handling[1]
+        else:
+            word_spans = None
+
         if len(_resolved_alignment_results) > 0:
             _word_alignment = get_final_word_alignment(_resolved_alignment_results, seg[3], tokenizer)
-            print(i, [val.word for val in _word_alignment.values()])
-            print(seg[3])
-        else:
-            print(i, "No alignment results")
 
-    return unaligned_segments, decoding_graphs, batch_results
+            # Update alignment timestamp with torchaudio
+            if word_spans is not None:
+                for k, v in list(_word_alignment.items())[:-1]:
+                    i1, i2 = 0, 0
+                    while i1 < len(word_spans[k]) and i2 < len(v.phones):
+                        if word_spans[k][i1].token != tokenizer.token2id[v.phones[i2].token_id]:
+                            i1 += 1
+                            continue
+                        else:
+                            v.phones[i2].timestamp = word_spans[k][i1].start
+                            v.phones[i2].score = word_spans[k][i1].score
+                            i1 += 1
+                            i2 += 1
+                    assert i2 == len(v.phones)
+                    v.start_time = torch.tensor(v.phones[0].timestamp)  # TODO: need to convert all tensors to scalars
+
+            # print(i, [val.word for val in _word_alignment.values()])
+            # print(seg[3])
+            part_range = seg[2]
+            for k, v in _word_alignment.items():
+                if k < len(part_range):
+                    widx = part_range[k]
+                    if widx not in word_alignment:
+                        delta_word_alignment[widx] = v
+        # else:
+        #     print(i, "No alignment results")
+
+    # return unaligned_segments, batch_results
+    return delta_word_alignment
 
 
 def get_audacity_labels(word_alignment, frame_duration):
