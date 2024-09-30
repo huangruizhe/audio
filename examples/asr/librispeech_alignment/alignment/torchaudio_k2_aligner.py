@@ -321,11 +321,12 @@ def align(
     logging.info(f"There are {len(word_alignment)} words aligned in the long text.")
 
     #### Step (6): do second pass alignment to improve recall ####
-    frame_duration = 0.02
-    delta_word_alignment = second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligned_text_indices, waveform_or_features, frame_duration, device)
-    logging.info(f"Second-pass FA: {len(word_alignment)=}", f"{len(delta_word_alignment)=}")
+    logging.info("Step (6): do second pass alignment to improve recall")
+    logging.info(f"Before 2nd-pass: {len(word_alignment)} words are aligned")
+    delta_word_alignment = second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligned_text_indices, waveform_or_features, model_frame_duration, device)
     word_alignment.update(delta_word_alignment)
     word_alignment = {key: word_alignment[key] for key in sorted(word_alignment.keys())}
+    logging.info(f"After 2nd-pass: {len(word_alignment)} words are aligned with delta: {len(delta_word_alignment)}")
 
     return word_alignment, unaligned_text_indices
     
@@ -795,7 +796,7 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
     return word_alignment
 
 
-def align(emission, tokens, device):
+def torchaudio_align(emission, tokens, device):
     targets = torch.tensor([tokens], dtype=torch.int32, device=device)
     alignments, scores = F.forced_align(emission, targets, blank=0)
 
@@ -945,7 +946,7 @@ def second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligne
         flattened_tokens = flatten_list(tokens)
         emission = emission[:l]
         emission = emission.unsqueeze(0)
-        aligned_tokens, alignment_scores = align(emission, flattened_tokens, device)
+        aligned_tokens, alignment_scores = torchaudio_align(emission, flattened_tokens, device)
         token_spans = F.merge_tokens(aligned_tokens, alignment_scores)
         word_spans = unflatten(token_spans, [len(word) for word in tokens])
         special_handling.append(word_spans)
