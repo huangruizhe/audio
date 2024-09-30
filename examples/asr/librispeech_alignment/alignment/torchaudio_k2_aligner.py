@@ -328,6 +328,13 @@ def align(
     word_alignment = {key: word_alignment[key] for key in sorted(word_alignment.keys())}
     logging.info(f"After 2nd-pass: {len(word_alignment)} words are aligned with delta: {len(delta_word_alignment)}")
 
+    word_indices = word_alignment.keys()
+    min_word_idx = min(word_indices)
+    max_word_idx = max(word_indices)
+    new_holes = [[min_word_idx+i for i, _ in group] for key, group in itertools.groupby(enumerate(list(range(min_word_idx, max_word_idx+1))), key=lambda x: x[1] in word_indices) if not key]
+    new_holes = [(group[0], group[-1]) for group in new_holes]  # inclusive on both sides!
+    logging.info(f"Now there are only {len(new_holes)} unaligned parts in the long text vs. {len(unaligned_text_indices)} before the 2nd-pass.")
+
     return word_alignment, unaligned_text_indices
     
     
