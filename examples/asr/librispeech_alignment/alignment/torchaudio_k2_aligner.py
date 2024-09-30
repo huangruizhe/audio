@@ -9,6 +9,7 @@ from k2_icefall_utils import (
 from factor_transducer import (
     make_factor_transducer_word_level_index_with_skip,
     make_factor_transducer_word_level_index,
+    flatten_list,
 )
 import itertools
 import lis  # https://github.com/huangruizhe/lis
@@ -130,11 +131,18 @@ def align_segments(
     best_paths = get_best_paths(emissions, segment_lengths, decoding_graph)
     best_paths = best_paths.detach().to('cpu')
 
+    if type(decoding_graph) == list:
+        skip_id = decoding_graph[0].skip_id
+        return_id = decoding_graph[0].return_id
+    else:
+        skip_id = decoding_graph.skip_id
+        return_id = decoding_graph.return_id
+
     # Get the output labels, timestamps and confidence scores from the best paths
     decoding_results = get_texts_with_timestamp(
         best_paths,
-        skip_id=decoding_graph.skip_id,
-        return_id=decoding_graph.return_id,
+        skip_id=skip_id,
+        return_id=return_id,
     )
     hyps = decoding_results["hyps"]
     timestamps = decoding_results["timestamps"]
@@ -155,14 +163,14 @@ def align_segments(
     # - more than 20% of the non-blank tokens are skip_ids
     # - there are >=3 return_ids
     condition1 = (segment_scores_per_frame < math.log(per_frame_score_threshold)).tolist()
-    condition2 = [len([_ for _ in hyps[i] if _ == decoding_graph.skip_id]) > skip_percentage_threshold * len(hyps[i]) for i in range(len(hyps))]
-    condition3 = [len([_ for _ in hyps[i] if _ > decoding_graph.skip_id]) >= return_arcs_num_threshold for i in range(len(hyps))]
+    condition2 = [len([_ for _ in hyps[i] if _ == skip_id]) > skip_percentage_threshold * len(hyps[i]) for i in range(len(hyps))]
+    condition3 = [len([_ for _ in hyps[i] if _ > skip_id]) >= return_arcs_num_threshold for i in range(len(hyps))]
     reject_segments = [c1 or c2 or c3 for c1, c2, c3 in zip(condition1, condition2, condition3)]
 
     # Remove skip/return ids from the symbols
-    assert decoding_graph.skip_id < decoding_graph.return_id
-    timestamps = [[ts for tid, ts in zip(hyp, timestamp) if tid < decoding_graph.skip_id] for hyp, timestamp in zip(hyps, timestamps)]
-    hyps = [[tid for tid in hyp if tid < decoding_graph.skip_id] for hyp in hyps]
+    assert skip_id < return_id
+    timestamps = [[ts for tid, ts in zip(hyp, timestamp) if tid < skip_id] for hyp, timestamp in zip(hyps, timestamps)]
+    hyps = [[tid for tid in hyp if tid < skip_id] for hyp in hyps]
 
     segment_results = []
     for hyp, timestamp, score, reject in zip(hyps, timestamps, conf_scores, reject_segments):
@@ -779,14 +787,15 @@ def get_final_word_alignment(alignment_results, text, tokenizer):
     return word_alignment
 
 
-def second_pass_fa(word_alignment, text, tokenizer, unaligned_text_indices, waveform, frame_duration):
+def second_pass_fa(model, sample_rate, word_alignment, text, tokenizer, unaligned_text_indices, waveform, frame_duration, device):
     # Second-pass forced alignment for the unaligned parts
     # In this case, we penalize skip arcs a lot
     # We need to re-align the unaligned parts
     
     text_splitted = text.split()
 
-    # Get the segments
+    # Collect the unaligned segments
+    unaligned_segments = []
     for ss, ee in unaligned_text_indices:
         # Include the left and right (aligned) neighbors
         # (ss - 1): aligned
@@ -796,7 +805,7 @@ def second_pass_fa(word_alignment, text, tokenizer, unaligned_text_indices, wave
         # (ee + 1): aligned
         
         # Indices range
-        part_range = list(range((max(ss - 1, 0), min(ee + 1, len(text_splitted)))))
+        part_range = list(range(max(ss - 1, 0), min(ee + 1, len(text_splitted))))
         
         # Text part
         text_part = " ".join(text_splitted[part_range[0]: part_range[-1]+1])
@@ -805,11 +814,92 @@ def second_pass_fa(word_alignment, text, tokenizer, unaligned_text_indices, wave
         assert part_range[0] in word_alignment
         assert part_range[-1] not in word_alignment
         assert part_range[-1] + 1 in word_alignment
-        start_time = word_alignment[part_range[0]].start_time  # in frames
-        end_time = word_alignment[part_range[-1] + 1].start_time
-        audio_part = waveform[start_time]
+        start_frame = word_alignment[part_range[0]].start_time  # in frames
+        end_frame = word_alignment[part_range[-1] + 1].start_time
+        _s = int(start_frame * sample_rate * frame_duration)
+        _e = int(end_frame * sample_rate * frame_duration) + 128
+        audio_part = waveform[:, _s:_e, :]
+        audio_part = audio_part.squeeze(0).squeeze(-1)
 
-        # Get the features
+        unaligned_segments.append((ss, ee, part_range, text_part, audio_part, start_frame))
+
+    # Pad and batchify the segments
+    segment_lengths = [len(seg[4]) for seg in unaligned_segments]
+    segment_lengths = torch.tensor(segment_lengths)
+    batched_segments = torch.nn.utils.rnn.pad_sequence([seg[4] for seg in unaligned_segments], batch_first=True)
+
+    # Get the decoding graph, with high penalty for skip
+    ttk = [tokenizer.encode(tokenizer.text_normalize(seg[3])) for seg in unaligned_segments]
+    ttk = [len(flatten_list(t)) for t in ttk]
+    skip_id = 2*max(ttk) + 10  # All the fsas needs to share the same skip_id/return_id -- required by create_fsa_vec
+
+    decoding_graphs = []
+    decoding_graphs_auxiliary = []
+    for seg in unaligned_segments:
+        text_tokenized = tokenizer.encode(tokenizer.text_normalize(seg[3]))
+        decoding_graph, word_index_sym_tab, token_sym_tab = \
+            make_factor_transducer_word_level_index_with_skip(
+                text_tokenized,
+                blank_penalty=0,
+                skip_penalty=-8.0,
+                return_penalty=-18.0,
+                skip_id = skip_id,
+            )
+        decoding_graphs.append(decoding_graph.to(device))
+        decoding_graphs_auxiliary.append((word_index_sym_tab, token_sym_tab))
+    
+    # Align
+    with torch.inference_mode():
+        # Checkout the API of the forward function here: https://github.com/pytorch/audio/blob/main/src/torchaudio/pipelines/_wav2vec2/utils.py#L34
+        batch_emissions, batch_emissions_lengths = \
+            model(
+                batched_segments.to(device), 
+                segment_lengths.to(device)
+            )
+
+    # Attach the star dimension manually, see torchaudio issue #3772
+    star_dim = torch.empty((batch_emissions.size(0), batch_emissions.size(1), 1), device=batch_emissions.device, dtype=batch_emissions.dtype)
+    star_dim[:] = -5.0
+    batch_emissions = torch.cat((batch_emissions, star_dim), 2)
+    batch_output_frames_offset = [seg[5] for seg in unaligned_segments]
+
+    # `token_ids` and `timestamps` will each be a list of lists.
+    # Each sublist corresponds to a segment in the batch.
+    batch_results = align_segments(
+        batch_emissions,
+        decoding_graphs,
+        batch_emissions_lengths,
+    )
+
+    # The interpretation of `token.token_id` depends on the decoding graph.
+    # Here, in this tutorial, `token.token_id` is the key to the `word_index_sym_tab``
+    # and `token_sym_tab` dictionaries.
+    for aligned_tokens, offset, (word_index_sym_tab, token_sym_tab) in \
+        zip(batch_results, batch_output_frames_offset, decoding_graphs_auxiliary):
+
+        for token in aligned_tokens:
+            token.timestamp += offset  # This will become the absolute frame timestamp in the whole audio
+            if token.token_id == tokenizer.blk_id:
+                continue
+            if token.token_id in word_index_sym_tab:
+                token.attr["wid"] = word_index_sym_tab[token.token_id]
+            if token.token_id in token_sym_tab:
+                token.attr["tk"] = token_sym_tab[token.token_id]
+
+    # Update `word_alignment`
+    for i, seg in enumerate(unaligned_segments):
+        _resolved_alignment_results, _unaligned_text_indices = concat_alignments(
+            [batch_results[i]],
+            neighborhood_size=5,
+        )
+        if len(_resolved_alignment_results) > 0:
+            _word_alignment = get_final_word_alignment(_resolved_alignment_results, seg[3], tokenizer)
+            print(i, [val.word for val in _word_alignment.values()])
+            print(seg[3])
+        else:
+            print(i, "No alignment results")
+
+    return unaligned_segments, decoding_graphs, batch_results
 
 
 def get_audacity_labels(word_alignment, frame_duration):
